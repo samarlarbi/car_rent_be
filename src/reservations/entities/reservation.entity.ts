@@ -38,7 +38,7 @@ export class Reservation {
   @JoinColumn({ name: 'customerId' })
   customer: Customer;
 
-  @Column()
+  @Column({ nullable: true})
   customerId: string;
 
   @Column()
@@ -47,19 +47,19 @@ export class Reservation {
   @Column()
   endDate: Date;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
   dailyRate: number;
 
-  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  @Column('decimal', { precision: 10, scale: 2, default: 0, nullable: true })
   discount: number;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
   totalPrice: number;
 
-  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  @Column('decimal', { precision: 10, scale: 2, default: 0, nullable: true })
   depositAmount: number;
 
-  @Column({ default: false })
+  @Column({ default: false , nullable: true})
   depositPaid: boolean;
 
   @Column({ nullable: true })

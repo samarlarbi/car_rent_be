@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, IsNull, Between, LessThan, MoreThan, In, Not } from 'typeorm';
+import { Repository, Like, IsNull, Between, LessThan, MoreThan, In, Not, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { Reservation, ReservationStatus } from './entities/reservation.entity';
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { Customer } from '../customers/entities/customer.entity';
@@ -50,19 +50,21 @@ export class ReservationsService {
     }
 
     // Check if customer exists
-    const customer = await this.customersRepository.findOne({
-      where: { id: createReservationDto.customerId, deletedAt: IsNull() },
-    });
+   // Customer is optional. Only look it up / validate it if an ID was provided.
+let customer: Customer | null = null;
+if (createReservationDto.customerId) {
+  customer = await this.customersRepository.findOne({
+    where: { id: createReservationDto.customerId, deletedAt: IsNull() },
+  });
 
-    if (!customer) {
-      throw new NotFoundException('Customer not found');
-    }
+  if (!customer) {
+    throw new NotFoundException('Customer not found');
+  }
 
-    // Check if customer is blacklisted
-    if (customer.isBlacklisted) {
-      throw new BadRequestException('Customer is blacklisted');
-    }
-
+  if (customer.isBlacklisted) {
+    throw new BadRequestException('Customer is blacklisted');
+  }
+}
     // Check for overlapping reservations
     const overlapping = await this.reservationsRepository.findOne({
       where: {
@@ -78,18 +80,20 @@ export class ReservationsService {
       throw new ConflictException('Car is not available for the selected dates');
     }
 
-    // Calculate total days and price
-    const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-    const discount = createReservationDto.discount || 0;
-    const totalPrice = Math.max(0, (createReservationDto.dailyRate * totalDays) - discount);
+   // Calculate total days and price. Fall back to the car's own dailyRate
+// if the client didn't send one (dailyRate is optional now).
+const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+const discount = createReservationDto.discount || 0;
+const effectiveDailyRate = createReservationDto.dailyRate ?? car.dailyRate ?? 0;
+const totalPrice = Math.max(0, (effectiveDailyRate * totalDays) - discount);
 
-    const reservation = this.reservationsRepository.create({
-      reservationNumber: this.generateReservationNumber(),
-      carId: createReservationDto.carId,
-      customerId: createReservationDto.customerId,
-      startDate,
+const reservation = this.reservationsRepository.create({
+  reservationNumber: this.generateReservationNumber(),
+  carId: createReservationDto.carId,
+  customerId: createReservationDto.customerId ?? null,
+   startDate,
       endDate,
-      dailyRate: createReservationDto.dailyRate,
+      dailyRate: effectiveDailyRate,
       discount,
       totalPrice,
       depositAmount: createReservationDto.depositAmount || 0,
@@ -140,12 +144,13 @@ export class ReservationsService {
     if (customerId) {
       where.customerId = customerId;
     }
-
-    if (startDate || endDate) {
-      where.startDate = {};
-      if (startDate) where.startDate.$gte = startDate;
-      if (endDate) where.endDate.$lte = endDate;
-    }
+if (startDate && endDate) {
+  where.startDate = Between(startDate, endDate);
+} else if (startDate) {
+  where.startDate = MoreThanOrEqual(startDate);
+} else if (endDate) {
+  where.endDate = LessThanOrEqual(endDate);
+}
 
     const skip = (page - 1) * limit;
 

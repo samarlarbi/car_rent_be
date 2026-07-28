@@ -5,9 +5,12 @@ import { ReservationsController } from './reservations.controller';
 import { Reservation } from './entities/reservation.entity';
 import { Car } from '../cars/entities/car.entity';
 import { Customer } from '../customers/entities/customer.entity';
+import { CarsModule } from '../cars/cars.module'; 
+import { CustomersModule } from '../customers/customers.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Reservation, Car, Customer])],
+  imports: [TypeOrmModule.forFeature([Reservation, Car, Customer]),CarsModule,    
+    CustomersModule,],
   controllers: [ReservationsController],
   providers: [ReservationsService],
   exports: [ReservationsService],

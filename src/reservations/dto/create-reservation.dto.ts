@@ -16,6 +16,8 @@ export class CreateReservationDto {
 
   @ApiProperty({ description: 'Customer ID' })
   @IsUUID()
+    @IsOptional()
+
   customerId: string;
 
   @ApiProperty({ description: 'Rental start date', example: '2024-01-15T10:00:00Z' })
@@ -29,6 +31,8 @@ export class CreateReservationDto {
   @ApiProperty({ description: 'Daily rate', example: 50.0 })
   @IsNumber()
   @Min(0)
+    @IsOptional()
+
   dailyRate: number;
 
   @ApiPropertyOptional({ description: 'Discount amount', example: 0 })

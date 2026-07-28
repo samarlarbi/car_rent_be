@@ -30,26 +30,27 @@ export class Car {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({nullable: true})
   make: string;
 
-  @Column()
+  @Column({nullable: true})
   model: string;
 
-  @Column()
+  @Column({nullable: true})
   year: number;
 
-  @Column({ unique: true })
+  @Column({ unique: true ,nullable: true})
   plateNumber: string;
 
   @Column({
     type: 'enum',
     enum: CarCategory,
     default: CarCategory.SEDAN,
+    
   })
   category: CarCategory;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 10, scale: 2 ,nullable: true})
   dailyRate: number;
 
   @Column({ nullable: true })

@@ -16,31 +16,40 @@ import { CarCategory } from '../entities/car.entity';
 export class CreateCarDto {
   @ApiProperty({ example: 'Toyota', description: 'Car make' })
   @IsString()
+      @IsOptional()
+
   make: string;
 
   @ApiProperty({ example: 'Camry', description: 'Car model' })
   @IsString()
+      @IsOptional()
+
   model: string;
 
   @ApiProperty({ example: 2024, description: 'Manufacturing year' })
   @IsInt()
+      @IsOptional()
+
   @Min(1900)
   @Max(new Date().getFullYear() + 1)
   year: number;
 
   @ApiProperty({ example: 'ABC-1234', description: 'License plate number' })
   @IsString()
-  @Matches(/^[A-Z0-9\-]{2,20}$/, {
-    message: 'Invalid plate number format',
-  })
+    @IsOptional()
+
+ 
   plateNumber: string;
 
   @ApiProperty({ enum: CarCategory, example: CarCategory.SEDAN })
   @IsEnum(CarCategory)
+    @IsOptional()
+
   category: CarCategory;
 
   @ApiProperty({ example: 50.00, description: 'Daily rental rate' })
   @IsNumber()
+    @IsOptional()
   @Min(0)
   dailyRate: number;
 
