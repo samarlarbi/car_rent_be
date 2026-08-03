@@ -2,10 +2,15 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
-import { AppModule } from './app.module';
+import { ExpressAdapter } from '@nestjs/platform-express';
+import { AppModule } from '../src/app.module';
+import * as express from 'express';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+const server = express();
+let cachedApp: any = null;
+
+async function bootstrapServer() {
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
   const configService = app.get(ConfigService);
 
   app.enableCors({
@@ -36,8 +41,13 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  const port = configService.get('PORT', 3000);
-  await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}`);
+  await app.init();
+  return app;
 }
-bootstrap();
+
+export default async function handler(req: any, res: any) {
+  if (!cachedApp) {
+    cachedApp = await bootstrapServer();
+  }
+  server(req, res);
+}
