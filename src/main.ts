@@ -2,13 +2,15 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
+import { ExpressAdapter } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import * as express from 'express';
+const server = express();
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, new ExpressAdapter(server));
   const configService = app.get(ConfigService);
 
-  // Enable CORS
   app.enableCors({
     origin: configService.get('CORS_ORIGIN', '*').split(','),
     credentials: true,
@@ -16,22 +18,17 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   });
 
-  // Global prefix
   app.setGlobalPrefix(configService.get('API_PREFIX', 'api/v1'));
 
-  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
+      transformOptions: { enableImplicitConversion: true },
     }),
   );
 
-  // Swagger documentation
   const config = new DocumentBuilder()
     .setTitle('Car Rental Management API')
     .setDescription('API for managing car rentals, reservations, and customers')
@@ -47,9 +44,16 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  const port = configService.get('PORT', 3000);
-  await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}`);
-  console.log(`API Documentation: http://localhost:${port}/api/docs`);
+  await app.init();
+
+  // Local dev: run a real listener
+  if (process.env.NODE_ENV !== 'production') {
+    const port = configService.get('PORT', 3000);
+    await app.listen(port);
+    console.log(`Application is running on: http://localhost:${port}`);
+  }
 }
+
 bootstrap();
+
+export default server;
