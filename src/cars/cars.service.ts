@@ -13,12 +13,15 @@ import { Reservation, ReservationStatus } from '../reservations/entities/reserva
 
 @Injectable()
 export class CarsService {
-  constructor(
+ 
+constructor(
     @InjectRepository(Car)
     private carsRepository: Repository<Car>,
     @InjectRepository(Reservation)
     private reservationsRepository: Repository<Reservation>,
   ) {}
+
+  
 
   async create(createCarDto: CreateCarDto): Promise<Car> {
     // Check for duplicate plate number
@@ -148,10 +151,6 @@ export class CarsService {
     return this.carsRepository.save(car);
   }
 
-  async remove(id: string): Promise<void> {
-    const car = await this.findOne(id);
-    await this.carsRepository.softDelete(id);
-  }
 
   async restore(id: string): Promise<Car> {
     await this.carsRepository.restore(id);
@@ -245,5 +244,18 @@ where: { status: CarStatus.RESERVED, deletedAt: IsNull() },    });
       ],
       take: 10,
     });
+  }
+  async remove(id: string): Promise<void> {
+    // Ensure the car exists before proceeding
+    const car = await this.findOne(id);
+
+    // Soft-delete and cancel all active reservations for this car
+    await this.reservationsRepository.update(
+      { carId: id, deletedAt: IsNull() },
+      { deletedAt: new Date(), status: ReservationStatus.CANCELLED }
+    );
+
+    // Soft-delete the car
+    await this.carsRepository.softDelete(id);
   }
 }
