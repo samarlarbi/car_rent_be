@@ -259,10 +259,19 @@ if (startDate && endDate) {
         (updateReservationDto as any).completedBy = userId;
         (updateReservationDto as any).completedAt = new Date();
         (updateReservationDto as any).actualReturnDate = new Date();
-      } else if (newStatus === ReservationStatus.CANCELLED) {
-        (updateReservationDto as any).cancelledBy = userId;
-        (updateReservationDto as any).cancelledAt = new Date();
-      }
+        
+        // ✂️ Truncate the endDate to today's actual return date
+        const actualReturn = new Date();
+        const start = new Date(reservation.startDate);
+        
+        // Ensure end date doesn't precede start date
+        if (actualReturn >= start) {
+          (updateReservationDto as any).endDate = actualReturn;
+          
+          // Recalculate total days and price based on the early return
+          const totalDays = Math.max(1, Math.ceil((actualReturn.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+          (updateReservationDto as any).totalPrice = Math.max(0, (reservation.dailyRate * totalDays) - (reservation.discount || 0));
+        }}
     }
 
     Object.assign(reservation, updateReservationDto);
