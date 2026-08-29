@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, IsNull, MoreThan, LessThan } from 'typeorm';
+import { Repository, Like, IsNull, MoreThan } from 'typeorm';
 import { Customer } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -18,29 +18,51 @@ export class CustomersService {
   ) {}
 
   async create(createCustomerDto: CreateCustomerDto) {
-  const { email } = createCustomerDto;
+    const dto = { ...createCustomerDto } as CreateCustomerDto & {
+      email?: string | null;
+      phone?: string | null;
+    };
 
-  // 1. Only check for duplicates if an email was actually provided in the request
-  if (email) {
-    const existingCustomer = await this.customersRepository.findOne({ 
-      where: { email } 
-    });
-    
-    if (existingCustomer) {
-      throw new ConflictException('A customer with this email already exists.');
+    // Normalize empty strings to null so the unique constraints on
+    // email/phone never trip on blank values (500 errors otherwise).
+    if (dto.email !== undefined && dto.email !== null && dto.email.trim() === '') {
+      dto.email = null;
     }
-  }
+    if (dto.phone !== undefined && dto.phone !== null && dto.phone.trim() === '') {
+      dto.phone = null;
+    }
 
-  // 2. Continue with your normal creation logic...
-  const newCustomer = this.customersRepository.create(createCustomerDto);
-  return await this.customersRepository.save(newCustomer);
-}
+    // Only check for duplicates if an email was actually provided
+    if (dto.email) {
+      const existingCustomer = await this.customersRepository.findOne({
+        where: { email: dto.email },
+      });
+
+      if (existingCustomer) {
+        throw new ConflictException('A customer with this email already exists.');
+      }
+    }
+
+    // Only check for duplicates if a phone was actually provided
+    if (dto.phone) {
+      const existingByPhone = await this.customersRepository.findOne({
+        where: { phone: dto.phone },
+      });
+
+      if (existingByPhone) {
+        throw new ConflictException('A customer with this phone number already exists.');
+      }
+    }
+
+    const newCustomer = this.customersRepository.create(dto);
+    return await this.customersRepository.save(newCustomer);
+  }
   async findAll(params?: {
     search?: string;
     isBlacklisted?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: Customer[]; total: number; page: number; pages: number }> {
+  }): Promise<{ data: Customer[]; total: number; page: number; pages: number; perPage: number }> {
     const {
       search,
       isBlacklisted,
@@ -48,15 +70,20 @@ export class CustomersService {
       limit = 20,
     } = params || {};
 
-    const where: any = { deletedAt: IsNull() };
-
-    if (search) {
-      where.firstName = Like(`%${search}%`);
-    }
-
+    const base: any = { deletedAt: IsNull() };
     if (isBlacklisted !== undefined) {
-      where.isBlacklisted = isBlacklisted;
+      base.isBlacklisted = isBlacklisted;
     }
+
+    // Search across first name, last name, email AND phone (OR conditions)
+    const where: any = search
+      ? [
+          { ...base, firstName: Like(`%${search}%`) },
+          { ...base, lastName: Like(`%${search}%`) },
+          { ...base, email: Like(`%${search}%`) },
+          { ...base, phone: Like(`%${search}%`) },
+        ]
+      : base;
 
     const skip = (page - 1) * limit;
 
@@ -72,11 +99,13 @@ export class CustomersService {
       c.fullName = `${c.firstName} ${c.lastName}`;
     });
 
+    // `perPage` keeps the response contract consistent with reservations.
     return {
       data,
       total,
       page,
       pages: Math.ceil(total / limit),
+      perPage: limit,
     };
   }
 
@@ -122,10 +151,23 @@ export class CustomersService {
   async update(id: string, updateCustomerDto: UpdateCustomerDto): Promise<Customer> {
     const customer = await this.findOne(id);
 
+    const dto = { ...updateCustomerDto } as UpdateCustomerDto & {
+      email?: string | null;
+      phone?: string | null;
+    };
+
+    // Normalize empty strings to null so unique constraints never trip
+    if (dto.email !== undefined && dto.email !== null && dto.email.trim() === '') {
+      dto.email = null;
+    }
+    if (dto.phone !== undefined && dto.phone !== null && dto.phone.trim() === '') {
+      dto.phone = null;
+    }
+
     // Check for duplicate email if changed
-    if (updateCustomerDto.email && updateCustomerDto.email !== customer.email) {
+    if (dto.email && dto.email !== customer.email) {
       const existing = await this.customersRepository.findOne({
-        where: { email: updateCustomerDto.email, deletedAt: IsNull() },
+        where: { email: dto.email, deletedAt: IsNull() },
       });
 
       if (existing && existing.id !== id) {
@@ -134,9 +176,9 @@ export class CustomersService {
     }
 
     // Check for duplicate phone if changed
-    if (updateCustomerDto.phone && updateCustomerDto.phone !== customer.phone) {
+    if (dto.phone && dto.phone !== customer.phone) {
       const existing = await this.customersRepository.findOne({
-        where: { phone: updateCustomerDto.phone, deletedAt: IsNull() },
+        where: { phone: dto.phone, deletedAt: IsNull() },
       });
 
       if (existing && existing.id !== id) {
@@ -152,7 +194,7 @@ export class CustomersService {
       (updateCustomerDto as any).blacklistedAt = null;
     }
 
-    Object.assign(customer, updateCustomerDto);
+    Object.assign(customer, dto);
     return this.customersRepository.save(customer);
   }
 

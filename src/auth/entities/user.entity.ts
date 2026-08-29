@@ -34,6 +34,9 @@ export class User {
   isActive: boolean;
 
   @Column({ default: false })
+  isApproved: boolean;
+
+  @Column({ default: false })
   isSuperAdmin: boolean;
 
   @CreateDateColumn()

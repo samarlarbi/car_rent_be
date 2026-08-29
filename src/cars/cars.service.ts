@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, Between, IsNull, In, LessThan, MoreThan, LessThanOrEqual } from 'typeorm';
+import { Repository, Like, Between, IsNull, In, LessThan, MoreThan, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { Car, CarStatus, CarCategory } from './entities/car.entity';
 import { CreateCarDto } from './dto/create-car.dto';
 import { UpdateCarDto } from './dto/update-car.dto';
@@ -34,7 +34,7 @@ export class CarsService {
     return this.carsRepository.save(car);
   }
 
- async findAll(params?: {
+  async findAll(params?: {
     search?: string;
     status?: CarStatus;
     category?: CarCategory;
@@ -44,7 +44,7 @@ export class CarsService {
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ data: Car[]; total: number; page: number; pages: number }> {
+  }): Promise<{ data: Car[]; total: number; page: number; pages: number; perPage: number }> {
     const {
       search,
       status,
@@ -55,28 +55,32 @@ export class CarsService {
       limit = 20,
     } = params || {};
 
-    const where: any = { deletedAt: IsNull() };
-
-    if (search) {
-      where.make = Like(`%${search}%`);
-    }
-
+    // Base filters shared by every branch of the search condition
+    const base: any = { deletedAt: IsNull() };
     if (status) {
-      where.status = status;
+      base.status = status;
     }
-
     if (category) {
-      where.category = category;
+      base.category = category;
     }
 
     // Explicitly fix TypeORM operators for relational pricing ranges
     if (minRate !== undefined && maxRate !== undefined) {
-      where.dailyRate = Between(minRate, maxRate);
+      base.dailyRate = Between(minRate, maxRate);
     } else if (minRate !== undefined) {
-      where.dailyRate = MoreThanOrEqual(minRate);
+      base.dailyRate = MoreThanOrEqual(minRate);
     } else if (maxRate !== undefined) {
-      where.dailyRate = LessThanOrEqual(maxRate);
+      base.dailyRate = LessThanOrEqual(maxRate);
     }
+
+    // Search across make, model AND plate number (OR conditions)
+    const where: any = search
+      ? [
+          { ...base, make: Like(`%${search}%`) },
+          { ...base, model: Like(`%${search}%`) },
+          { ...base, plateNumber: Like(`%${search}%`) },
+        ]
+      : base;
 
     const skip = (page - 1) * limit;
 
@@ -87,11 +91,13 @@ export class CarsService {
       take: limit,
     });
 
+    // `perPage` keeps the response contract consistent across resources.
     return {
       data,
       total,
       page,
       pages: Math.ceil(total / limit),
+      perPage: limit,
     };
   }
   async findOne(id: string): Promise<Car> {
@@ -241,8 +247,4 @@ export class CarsService {
       take: 10,
     });
   }
-}
-
-function MoreThanOrEqual(minRate: number): any {
-  throw new Error('Function not implemented.');
 }

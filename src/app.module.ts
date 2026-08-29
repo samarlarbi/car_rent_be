@@ -10,9 +10,11 @@ import { User } from './auth/entities/user.entity';
 import { Car } from './cars/entities/car.entity';
 import { Reservation } from './reservations/entities/reservation.entity';
 import { Customer } from './customers/entities/customer.entity';
+import { CronModule } from './cron/cron.module';
 
 @Module({
   imports: [
+    CronModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -20,15 +22,22 @@ import { Customer } from './customers/entities/customer.entity';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
+        const isProduction = configService.get('NODE_ENV') === 'production';
         const connectionString = configService.get('DB_CONNECTION_STRING');
-console.log('Connection string is:', connectionString);
         if (connectionString) {
+          // Hosted Postgres providers (Neon, Supabase, Railway…) require SSL
+          // in production; local databases must NOT use it.
+          const needsSsl =
+            isProduction ||
+            /sslmode=require/.test(connectionString) ||
+            configService.get('DB_SSL') === 'true';
           return {
             type: 'postgres',
-url: connectionString,            entities: [User, Car, Reservation, Customer],
-            synchronize: configService.get('NODE_ENV') === 'development',
-            logging: configService.get('NODE_ENV') === 'development',
-            ssl: { rejectUnauthorized: false },
+            url: connectionString,
+            entities: [User, Car, Reservation, Customer],
+            synchronize: !isProduction,
+            logging: !isProduction,
+            ssl: needsSsl ? { rejectUnauthorized: false } : false,
           };
         }
         return {
@@ -38,8 +47,8 @@ url: connectionString,            entities: [User, Car, Reservation, Customer],
           username: configService.get('DB_USERNAME', 'postgres'),
           password: configService.get('DB_PASSWORD', ''),
           database: configService.get('DB_DATABASE', 'car_rental_db'),
-          ssl: configService.get('DB_SSL', false) === 'true' 
-            ? { rejectUnauthorized: false } 
+          ssl: configService.get('DB_SSL', false) === 'true'
+            ? { rejectUnauthorized: false }
             : false,
           entities: [User, Car, Reservation, Customer],
           synchronize: configService.get('NODE_ENV') === 'development',

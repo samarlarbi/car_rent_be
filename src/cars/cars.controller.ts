@@ -154,11 +154,17 @@ async importCars(@UploadedFile() file: Express.Multer.File) {
   @ApiOperation({ summary: 'Get available cars for date range' })
   @ApiQuery({ name: 'startDate', required: true, type: Date })
   @ApiQuery({ name: 'endDate', required: true, type: Date })
+  @ApiQuery({ name: 'category', required: false, type: String })
   async getAvailableCars(
     @Query('startDate') startDate: Date,
     @Query('endDate') endDate: Date,
+    @Query('category') category?: string,
   ) {
-    return this.carsService.getAvailableCars(new Date(startDate), new Date(endDate));
+    return this.carsService.getAvailableCars(
+      new Date(startDate),
+      new Date(endDate),
+      category,
+    );
   }
 
   @Get('stats')

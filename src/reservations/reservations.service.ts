@@ -23,12 +23,22 @@ export class ReservationsService {
     private customersRepository: Repository<Customer>,
   ) {}
 
-  private generateReservationNumber(): string {
-    const date = new Date();
-    const year = date.getFullYear().toString().slice(-2);
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `RES-${year}${month}-${random}`;
+  private async generateReservationNumber(): Promise<string> {
+    // Retry a few times in the (rare) event of a random-number collision
+    // with the unique reservationNumber column.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const date = new Date();
+      const year = date.getFullYear().toString().slice(-2);
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const random = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
+      const candidate = `RES-${year}${month}-${random}`;
+      const exists = await this.reservationsRepository.findOne({
+        where: { reservationNumber: candidate },
+      });
+      if (!exists) return candidate;
+    }
+    // Practically unreachable; fall back to a timestamp-based number.
+    return `RES-${Date.now()}`;
   }
 
   async create(createReservationDto: CreateReservationDto, userId: string): Promise<Reservation> {
@@ -80,6 +90,8 @@ if (createReservationDto.customerId) {
       throw new ConflictException('Car is not available for the selected dates');
     }
 
+    const reservationNumber = await this.generateReservationNumber();
+
    // Calculate total days and price. Fall back to the car's own dailyRate
 // if the client didn't send one (dailyRate is optional now).
 const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -88,7 +100,7 @@ const effectiveDailyRate = createReservationDto.dailyRate ?? car.dailyRate ?? 0;
 const totalPrice = Math.max(0, (effectiveDailyRate * totalDays) - discount);
 
 const reservation = this.reservationsRepository.create({
-  reservationNumber: this.generateReservationNumber(),
+  reservationNumber,
   carId: createReservationDto.carId,
   customerId: createReservationDto.customerId ?? null,
    startDate,
@@ -103,7 +115,14 @@ const reservation = this.reservationsRepository.create({
       status: ReservationStatus.PENDING,
     });
 
-    return this.reservationsRepository.save(reservation);
+    const saved = await this.reservationsRepository.save(reservation);
+
+    // Keep the car status in sync: a booked car is no longer "available".
+    if (car.status === CarStatus.AVAILABLE) {
+      await this.carsRepository.update(car.id, { status: CarStatus.RESERVED });
+    }
+
+    return saved;
   }
 
   async findAll(params?: {
@@ -115,7 +134,7 @@ const reservation = this.reservationsRepository.create({
     endDate?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ data: Reservation[]; total: number; page: number; pages: number }> {
+  }): Promise<{ data: Reservation[]; total: number; page: number; pages: number; perPage: number }> {
     const {
       search,
       status,
@@ -166,7 +185,9 @@ if (startDate && endDate) {
       r.totalDays = Math.ceil((new Date(r.endDate).getTime() - new Date(r.startDate).getTime()) / (1000 * 60 * 60 * 24));
     });
 
-    return { data, total, page, pages: Math.ceil(total / limit) };
+    // `perPage` is part of the contract the Flutter client relies on for
+    // infinite-scroll pagination (hasMore = fetched >= perPage).
+    return { data, total, page, pages: Math.ceil(total / limit), perPage: limit };
   }
 
   async findOne(id: string): Promise<Reservation> {
@@ -193,6 +214,38 @@ if (startDate && endDate) {
       (updateReservationDto as any).depositPaidAt = new Date();
     }
 
+    // If the dates change, make sure the new window does not overlap another
+    // active reservation for the same car (excluding this one).
+    const newStartDate = updateReservationDto.startDate
+      ? new Date(updateReservationDto.startDate)
+      : null;
+    const newEndDate = updateReservationDto.endDate
+      ? new Date(updateReservationDto.endDate)
+      : null;
+
+    if (newStartDate || newEndDate) {
+      const start = newStartDate ?? new Date(reservation.startDate);
+      const end = newEndDate ?? new Date(reservation.endDate);
+
+      if (end <= start) {
+        throw new BadRequestException('End date must be after start date');
+      }
+
+      const overlapping = await this.reservationsRepository.findOne({
+        where: {
+          carId: reservation.carId,
+          status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING, ReservationStatus.PENDING]),
+          deletedAt: IsNull(),
+          startDate: LessThan(end),
+          endDate: MoreThan(start),
+        },
+      });
+
+      if (overlapping && overlapping.id !== reservation.id) {
+        throw new ConflictException('Car is not available for the selected dates');
+      }
+    }
+
     // Handle status transitions
     if (updateReservationDto.status && updateReservationDto.status !== reservation.status) {
       const newStatus = updateReservationDto.status;
@@ -213,12 +266,57 @@ if (startDate && endDate) {
     }
 
     Object.assign(reservation, updateReservationDto);
-    return this.reservationsRepository.save(reservation);
+    const saved = await this.reservationsRepository.save(reservation);
+
+    // Keep the car status in sync with the reservation lifecycle.
+    await this.syncCarStatus(reservation.carId, saved.status);
+
+    return saved;
+  }
+
+  /// Maps a reservation status to the car status it implies and applies it
+  /// only when it moves the car forward (never unlocks a car that still has
+  /// other active reservations).
+  private async syncCarStatus(carId: string, status: ReservationStatus): Promise<void> {
+    try {
+      let target: CarStatus | null = null;
+      if (status === ReservationStatus.ONGOING) {
+        target = CarStatus.RENTED;
+      } else if (
+        status === ReservationStatus.COMPLETED ||
+        status === ReservationStatus.CANCELLED
+      ) {
+        // Only free the car when no other active reservation holds it.
+        const stillBusy = await this.reservationsRepository.findOne({
+          where: {
+            carId,
+            status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING, ReservationStatus.PENDING]),
+            deletedAt: IsNull(),
+          },
+        });
+        target = stillBusy ? CarStatus.RESERVED : CarStatus.AVAILABLE;
+      } else if (
+        status === ReservationStatus.CONFIRMED ||
+        status === ReservationStatus.PENDING
+      ) {
+        target = CarStatus.RESERVED;
+      }
+
+      if (target) {
+        await this.carsRepository.update(carId, { status: target });
+      }
+    } catch (e) {
+      // Never fail the reservation operation because of a car-status sync.
+      // eslint-disable-next-line no-console
+      console.error('Failed to sync car status', e);
+    }
   }
 
   async remove(id: string): Promise<void> {
     const reservation = await this.findOne(id);
     await this.reservationsRepository.softDelete(id);
+    // Deleting frees the car unless another active reservation holds it.
+    await this.syncCarStatus(reservation.carId, ReservationStatus.CANCELLED);
   }
 
   async confirmReservation(id: string, userId: string): Promise<Reservation> {

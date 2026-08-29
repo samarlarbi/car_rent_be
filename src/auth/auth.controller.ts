@@ -4,11 +4,13 @@ import {
   Get,
   Patch,
   Body,
+  Param,
   UseGuards,
   Request,
   HttpCode,
   HttpStatus,
   Headers,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -42,8 +44,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token' })
   @ApiResponse({ status: 200, description: 'Token refreshed successfully' })
-  async refreshToken(@Headers('authorization') auth: string) {
-    const token = auth?.replace('Bearer ', '');
+  async refreshToken(
+    @Headers('authorization') auth: string,
+    @Body() body?: { refreshToken?: string },
+  ) {
+    const token = body?.refreshToken || auth?.replace('Bearer ', '');
     if (!token) {
       return { message: 'No refresh token provided' };
     }
@@ -76,5 +81,38 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Language updated successfully' })
   async updateLanguage(@Request() req, @Body('language') language: string) {
     return this.authService.updateLanguage(req.user.id, language);
+  }
+
+  @Get('pending-users')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List users pending admin approval' })
+  async getPendingUsers(@Request() req) {
+    if (!req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
+    return this.authService.getPendingUsers();
+  }
+
+  @Post('approve/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Approve a pending user' })
+  async approveUser(@Request() req, @Param('id') id: string) {
+    if (!req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
+    return this.authService.approveUser(id);
+  }
+
+  @Post('reject/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Reject a pending user' })
+  async rejectUser(@Request() req, @Param('id') id: string) {
+    if (!req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
+    return this.authService.rejectUser(id);
   }
 }
