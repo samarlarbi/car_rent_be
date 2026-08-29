@@ -54,7 +54,7 @@ export class DashboardService {
       where: { status: CarStatus.AVAILABLE, deletedAt: IsNull() },
     });
     const rentedCars = await this.carsRepository.count({
-      where: { status: CarStatus.RENTED, deletedAt: IsNull() },
+      where: { status: CarStatus.RESERVED, deletedAt: IsNull() },
     });
     const reservedCars = await this.carsRepository.count({
       where: { status: CarStatus.RESERVED, deletedAt: IsNull() },

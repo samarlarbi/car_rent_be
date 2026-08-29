@@ -217,8 +217,7 @@ export class CarsService {
       where: { status: CarStatus.AVAILABLE, deletedAt: IsNull() },
     });
     const rented = await this.carsRepository.count({
-      where: { status: CarStatus.RENTED, deletedAt: IsNull() },
-    });
+where: { status: CarStatus.RESERVED, deletedAt: IsNull() },    });
     const reserved = await this.carsRepository.count({
       where: { status: CarStatus.RESERVED, deletedAt: IsNull() },
     });
