@@ -43,19 +43,19 @@ export class CronService {
       relations: ['car'],
     });
 
-    for (const reservation of toStart) {
-      reservation.status = ReservationStatus.ONGOING;
-      if (!reservation.actualPickupDate) {
-        reservation.actualPickupDate = now;
-      }
-      await this.reservationRepo.save(reservation);
+   // 1. Reservations that should START today
+for (const reservation of toStart) {
+  reservation.status = ReservationStatus.ONGOING;
+  if (!reservation.actualPickupDate) {
+    reservation.actualPickupDate = now;
+  }
+  await this.reservationRepo.save(reservation);
 
-      if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
-        await this.carRepo.update(reservation.carId, { status: CarStatus.RENTED });
-      }
-      startedCount++;
-    }
-
+  if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
+    await this.carRepo.update(reservation.carId, { status: CarStatus.RESERVED });
+  }
+  startedCount++;
+}
     // 2. Reservations that should COMPLETE: ongoing, and endDate has passed.
     const toComplete = await this.reservationRepo.find({
       where: {

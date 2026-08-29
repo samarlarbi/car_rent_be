@@ -6,14 +6,11 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
 } from 'typeorm';
-
 export enum CarStatus {
   AVAILABLE = 'available',
   RESERVED = 'reserved',
-  RENTED = 'rented',
   MAINTENANCE = 'maintenance',
 }
-
 export enum CarCategory {
   ECONOMY = 'economy',
   COMPACT = 'compact',
