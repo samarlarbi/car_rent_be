@@ -259,19 +259,10 @@ if (startDate && endDate) {
         (updateReservationDto as any).completedBy = userId;
         (updateReservationDto as any).completedAt = new Date();
         (updateReservationDto as any).actualReturnDate = new Date();
-        
-        // ✂️ Truncate the endDate to today's actual return date
-        const actualReturn = new Date();
-        const start = new Date(reservation.startDate);
-        
-        // Ensure end date doesn't precede start date
-        if (actualReturn >= start) {
-          (updateReservationDto as any).endDate = actualReturn;
-          
-          // Recalculate total days and price based on the early return
-          const totalDays = Math.max(1, Math.ceil((actualReturn.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-          (updateReservationDto as any).totalPrice = Math.max(0, (reservation.dailyRate * totalDays) - (reservation.discount || 0));
-        }}
+      } else if (newStatus === ReservationStatus.CANCELLED) {
+        (updateReservationDto as any).cancelledBy = userId;
+        (updateReservationDto as any).cancelledAt = new Date();
+      }
     }
 
     Object.assign(reservation, updateReservationDto);
@@ -283,40 +274,49 @@ if (startDate && endDate) {
     return saved;
   }
 
-  /// Maps a reservation status to the car status it implies and applies it
-  /// only when it moves the car forward (never unlocks a car that still has
-  /// other active reservations).
+  /// Maps a reservation status to the car status it implies. Cars only ever
+  /// sit in AVAILABLE, RESERVED, or MAINTENANCE (there is no separate
+  /// "rented" car status — a reservation that is currently ongoing still
+  /// shows the car as RESERVED). Never unlocks a car that still has another
+  /// active reservation.
   private async syncCarStatus(carId: string, status: ReservationStatus): Promise<void> {
-  try {
-    let target: CarStatus | null = null;
-    if (
-      status === ReservationStatus.ONGOING ||
-      status === ReservationStatus.CONFIRMED ||
-      status === ReservationStatus.PENDING
-    ) {
-      target = CarStatus.RESERVED;
-    } else if (
-      status === ReservationStatus.COMPLETED ||
-      status === ReservationStatus.CANCELLED
-    ) {
-      // Only free the car when no other active reservation holds it.
-      const stillBusy = await this.reservationsRepository.findOne({
-        where: {
-          carId,
-          status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING, ReservationStatus.PENDING]),
-          deletedAt: IsNull(),
-        },
-      });
-      target = stillBusy ? CarStatus.RESERVED : CarStatus.AVAILABLE;
-    }
+    try {
+      let target: CarStatus | null = null;
 
-    if (target) {
-      await this.carsRepository.update(carId, { status: target });
+      if (
+        status === ReservationStatus.PENDING ||
+        status === ReservationStatus.CONFIRMED ||
+        status === ReservationStatus.ONGOING
+      ) {
+        target = CarStatus.RESERVED;
+      } else if (
+        status === ReservationStatus.COMPLETED ||
+        status === ReservationStatus.CANCELLED
+      ) {
+        // Only free the car when no other active reservation holds it.
+        const stillBusy = await this.reservationsRepository.findOne({
+          where: {
+            carId,
+            status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING, ReservationStatus.PENDING]),
+            deletedAt: IsNull(),
+          },
+        });
+        target = stillBusy ? CarStatus.RESERVED : CarStatus.AVAILABLE;
+      }
+
+      if (target) {
+        // Never overwrite a car that's been manually set to MAINTENANCE.
+        const car = await this.carsRepository.findOne({ where: { id: carId } });
+        if (car && car.status !== CarStatus.MAINTENANCE) {
+          await this.carsRepository.update(carId, { status: target });
+        }
+      }
+    } catch (e) {
+      // Never fail the reservation operation because of a car-status sync.
+      // eslint-disable-next-line no-console
+      console.error('Failed to sync car status', e);
     }
-  } catch (e) {
-    console.error('Failed to sync car status', e);
   }
-}
 
   async remove(id: string): Promise<void> {
     const reservation = await this.findOne(id);

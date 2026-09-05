@@ -57,28 +57,26 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     try {
-      const plate = row['Car Plate'];
-      const email = row['Customer Email'];
-      if (!plate) throw new Error('Missing Car Plate');
-      if (!email) throw new Error('Missing Customer Email');
+      const plate = row['Plaque du Véhicule'];
+      const email = row['Email Client'];
+      if (!plate) throw new Error('Plaque du véhicule manquante');
+      if (!email) throw new Error('Email client manquant');
 
       // NOTE: adjust to match your real service signatures -- assumes
       // search() returns an array and takes the closest/first match.
       const [car] = await this.carsService.search(plate);
-      if (!car) throw new Error(`No car found with plate "${plate}"`);
+      if (!car) throw new Error(`Aucun véhicule trouvé avec la plaque "${plate}"`);
 
       const [customer] = await this.customersService.search(email);
-      if (!customer) throw new Error(`No customer found with email "${email}"`);
+      if (!customer) throw new Error(`Aucun client trouvé avec l'email "${email}"`);
 
       await this.reservationsService.create(
         {
           carId: car.id,
           customerId: customer.id,
-          startDate: row['Start Date'],
-          endDate: row['End Date'],
-          status: row['Status'] || undefined,
-          pickupLocation: row['Pickup Location'] || undefined,
-          dropoffLocation: row['Dropoff Location'] || undefined,
+          startDate: row['Date de Début'],
+          endDate: row['Date de Fin'],
+          status: row['Statut'] || undefined,
           notes: row['Notes'] || undefined,
         } as any,
         req.user.id,
@@ -86,7 +84,7 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
       result.imported++;
     } catch (e: any) {
       result.skipped++;
-      result.errors.push({ row: i + 2, reason: e.message || 'Unknown error' });
+      result.errors.push({ row: i + 2, reason: e.message || 'Erreur inconnue' });
     }
   }
 
@@ -132,43 +130,41 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
       limit,
     });
   }
-@Get('export')
-@ApiOperation({ summary: 'Export all reservations to Excel' })
-async exportReservations(@Res() res: Response) {
-  const { data } = await this.reservationsService.findAll({ page: 1, limit: 1_000_000 });
 
-  const rows = data.map((r: any) => ({
-    reservationNumber: r.reservationNumber,
-    carPlate: r.car?.plateNumber,
-    customerEmail: r.customer?.email,
-    customerPhone: r.customer?.phone,
-    startDate: r.startDate,
-    endDate: r.endDate,
-    status: r.status,
-    pickupLocation: r.pickupLocation,
-    dropoffLocation: r.dropoffLocation,
-    notes: r.notes,
-  }));
+  @Get('export')
+  @ApiOperation({ summary: 'Export all reservations to Excel' })
+  async exportReservations(@Res() res: Response) {
+    const { data } = await this.reservationsService.findAll({ page: 1, limit: 1_000_000 });
 
-  const buffer = await buildExcelBuffer(rows, [
-    { header: 'Reservation Number', key: 'reservationNumber' },
-    { header: 'Car Plate', key: 'carPlate' },
-    { header: 'Customer Email', key: 'customerEmail' },
-    { header: 'Customer Phone', key: 'customerPhone' },
-    { header: 'Start Date', key: 'startDate' },
-    { header: 'End Date', key: 'endDate' },
-    { header: 'Status', key: 'status' },
-    { header: 'Pickup Location', key: 'pickupLocation' },
-    { header: 'Dropoff Location', key: 'dropoffLocation' },
-    { header: 'Notes', key: 'notes' },
-  ]);
+    const rows = data.map((r: any) => ({
+      reservationNumber: r.reservationNumber,
+      carPlate: r.car?.plateNumber,
+      customerEmail: r.customer?.email,
+      customerPhone: r.customer?.phone,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      status: r.status,
+      notes: r.notes,
+    }));
 
-  res.set({
-    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': 'attachment; filename="reservations-export.xlsx"',
-  });
-  res.send(buffer);
-}
+    const buffer = await buildExcelBuffer(rows, [
+      { header: 'Numéro de Réservation', key: 'reservationNumber' },
+      { header: 'Plaque du Véhicule', key: 'carPlate' },
+      { header: 'Email Client', key: 'customerEmail' },
+      { header: 'Téléphone Client', key: 'customerPhone' },
+      { header: 'Date de Début', key: 'startDate' },
+      { header: 'Date de Fin', key: 'endDate' },
+      { header: 'Statut', key: 'status' },
+      { header: 'Notes', key: 'notes' },
+    ]);
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="reservations-export.xlsx"',
+    });
+    res.send(buffer);
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'Get reservation statistics' })
   async getStats() {

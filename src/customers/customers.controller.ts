@@ -67,76 +67,54 @@ export class CustomersController {
       limit,
     });
   }
-@Get('export')
-@ApiOperation({ summary: 'Export all customers to Excel' })
-async exportCustomers(@Res() res: Response) {
-  const { data } = await this.customersService.findAll({ page: 1, limit: 1_000_000 });
 
-  const buffer = await buildExcelBuffer(data as any, [
-    { header: 'First Name', key: 'firstName' },
-    { header: 'Last Name', key: 'lastName' },
-    { header: 'Email', key: 'email' },
-    { header: 'Phone', key: 'phone' },
-    { header: 'Address', key: 'address' },
-    { header: 'City', key: 'city' },
-    { header: 'State', key: 'state' },
-    { header: 'Country', key: 'country' },
-    { header: 'Postal Code', key: 'postalCode' },
-    { header: 'ID Number', key: 'idNumber' },
-    { header: 'ID Type', key: 'idType' },
-    { header: 'License Number', key: 'drivingLicenseNumber' },
-    { header: 'License Expiry', key: 'drivingLicenseExpiry' },
-    { header: 'License Country', key: 'drivingLicenseCountry' },
-    { header: 'Notes', key: 'notes' },
-    { header: 'Blacklisted', key: 'isBlacklisted' },
-    { header: 'Total Rentals', key: 'totalRentals' },
-  ]);
+  @Get('export')
+  @ApiOperation({ summary: 'Export all customers to Excel' })
+  async exportCustomers(@Res() res: Response) {
+    const { data } = await this.customersService.findAll({ page: 1, limit: 1_000_000 });
 
-  res.set({
-    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': 'attachment; filename="customers-export.xlsx"',
-  });
-  res.send(buffer);
-}
+    const buffer = await buildExcelBuffer(data as any, [
+      { header: 'Prénom', key: 'firstName' },
+      { header: 'Nom', key: 'lastName' },
+      { header: 'Email', key: 'email' },
+      { header: 'Téléphone', key: 'phone' },
+    ]);
 
-@Post('import')
-@UseInterceptors(FileInterceptor('file'))
-@ApiOperation({ summary: 'Import customers from an Excel file' })
-async importCustomers(@UploadedFile() file: { buffer: Buffer }) {
-  if (!file) throw new BadRequestException('No file uploaded');
-
-  const rows = await parseExcelBuffer(file.buffer);
-  const result = { imported: 0, skipped: 0, errors: [] as { row: number; reason: string }[] };
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    try {
-      await this.customersService.create({
-        firstName: row['First Name'],
-        lastName: row['Last Name'] || undefined,
-        email: row['Email'] || undefined,
-        phone: row['Phone'] || undefined,
-        address: row['Address'] || undefined,
-        city: row['City'] || undefined,
-        state: row['State'] || undefined,
-        country: row['Country'] || undefined,
-        postalCode: row['Postal Code'] || undefined,
-        idNumber: row['ID Number'] || undefined,
-        idType: row['ID Type'] || undefined,
-        drivingLicenseNumber: row['License Number'] || undefined,
-        drivingLicenseExpiry: row['License Expiry'] ? String(row['License Expiry']) : undefined,
-        drivingLicenseCountry: row['License Country'] || undefined,
-        notes: row['Notes'] || undefined,
-      } as any);
-      result.imported++;
-    } catch (e: any) {
-      result.skipped++;
-      result.errors.push({ row: i + 2, reason: e.message || 'Unknown error' });
-    }
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="clients-export.xlsx"',
+    });
+    res.send(buffer);
   }
 
-  return result;
-}
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Import customers from an Excel file' })
+  async importCustomers(@UploadedFile() file: { buffer: Buffer }) {
+    if (!file) throw new BadRequestException('No file uploaded');
+
+    const rows = await parseExcelBuffer(file.buffer);
+    const result = { imported: 0, skipped: 0, errors: [] as { row: number; reason: string }[] };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        await this.customersService.create({
+          firstName: row['Prénom'],
+          lastName: row['Nom'] || undefined,
+          email: row['Email'] || undefined,
+          phone: row['Téléphone'] || undefined,
+        } as any);
+        result.imported++;
+      } catch (e: any) {
+        result.skipped++;
+        result.errors.push({ row: i + 2, reason: e.message || 'Erreur inconnue' });
+      }
+    }
+
+    return result;
+  }
+
   @Get('stats')
   @ApiOperation({ summary: 'Get customer statistics' })
   async getStats() {
@@ -187,7 +165,3 @@ async importCustomers(@UploadedFile() file: { buffer: Buffer }) {
     return this.customersService.restore(id);
   }
 }
-
-
-
-

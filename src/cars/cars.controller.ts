@@ -79,77 +79,75 @@ export class CarsController {
       limit,
     });
   }
-@Get('export')
-@ApiOperation({ summary: 'Export all cars to Excel' })
-async exportCars(@Res() res: Response) {
-  const { data } = await this.carsService.findAll({ page: 1, limit: 1_000_000 });
 
-  const buffer = await buildExcelBuffer(data as any, [
-    { header: 'Make', key: 'make' },
-    { header: 'Model', key: 'model' },
-    { header: 'Year', key: 'year' },
-    { header: 'Plate Number', key: 'plateNumber' },
-    { header: 'Category', key: 'category' },
-    { header: 'Daily Rate', key: 'dailyRate' },
-    { header: 'Color', key: 'color' },
-    { header: 'VIN', key: 'vin' },
-    { header: 'Mileage', key: 'mileage' },
-    { header: 'Status', key: 'status' },
-    { header: 'Seats', key: 'seats' },
-    { header: 'Has GPS', key: 'hasGPS' },
-    { header: 'Has Bluetooth', key: 'hasBluetooth' },
-    { header: 'Has Backup Camera', key: 'hasBackupCamera' },
-    { header: 'Has Sunroof', key: 'hasSunroof' },
-    { header: 'Has Leather Seats', key: 'hasLeatherSeats' },
-    { header: 'Description', key: 'description' },
-  ]);
+  @Get('export')
+  @ApiOperation({ summary: 'Export all cars to Excel' })
+  async exportCars(@Res() res: Response) {
+    const { data } = await this.carsService.findAll({ page: 1, limit: 1_000_000 });
 
-  res.set({
-    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'Content-Disposition': 'attachment; filename="cars-export.xlsx"',
-  });
-  res.send(buffer);
-}
+    const buffer = await buildExcelBuffer(data as any, [
+      { header: 'Marque', key: 'make' },
+      { header: 'Modèle', key: 'model' },
+      { header: 'Année', key: 'year' },
+      { header: 'Numéro de Plaque', key: 'plateNumber' },
+      { header: 'Catégorie', key: 'category' },
+      { header: 'Tarif Journalier', key: 'dailyRate' },
+      { header: 'Couleur', key: 'color' },
+      { header: 'Statut', key: 'status' },
+      { header: 'Places', key: 'seats' },
+      { header: 'GPS', key: 'hasGPS' },
+      { header: 'Bluetooth', key: 'hasBluetooth' },
+      { header: 'Caméra de Recul', key: 'hasBackupCamera' },
+      { header: 'Toit Ouvrant', key: 'hasSunroof' },
+      { header: 'Sièges en Cuir', key: 'hasLeatherSeats' },
+      { header: 'Description', key: 'description' },
+    ]);
 
-@Post('import')
-@UseInterceptors(FileInterceptor('file'))
-@ApiOperation({ summary: 'Import cars from an Excel file' })
-async importCars(@UploadedFile() file: Express.Multer.File) {
-  if (!file) throw new BadRequestException('No file uploaded');
-
-  const rows = await parseExcelBuffer(file.buffer);
-  const result = { imported: 0, skipped: 0, errors: [] as { row: number; reason: string }[] };
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    try {
-      await this.carsService.create({
-        make: row['Make'],
-        model: row['Model'],
-        year: row['Year'] ? Number(row['Year']) : undefined,
-        plateNumber: row['Plate Number'],
-        category: row['Category'],
-        dailyRate: row['Daily Rate'] ? Number(row['Daily Rate']) : undefined,
-        color: row['Color'] || undefined,
-        vin: row['VIN'] || undefined,
-        mileage: row['Mileage'] ? Number(row['Mileage']) : undefined,
-        seats: row['Seats'] ? Number(row['Seats']) : undefined,
-        hasGPS: toBool(row['Has GPS']),
-        hasBluetooth: toBool(row['Has Bluetooth']),
-        hasBackupCamera: toBool(row['Has Backup Camera']),
-        hasSunroof: toBool(row['Has Sunroof']),
-        hasLeatherSeats: toBool(row['Has Leather Seats']),
-        description: row['Description'] || undefined,
-      } as any);
-      result.imported++;
-    } catch (e: any) {
-      result.skipped++;
-      result.errors.push({ row: i + 2, reason: e.message || 'Unknown error' });
-    }
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="vehicules-export.xlsx"',
+    });
+    res.send(buffer);
   }
 
-  return result;
-}
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Import cars from an Excel file' })
+  async importCars(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded');
+
+    const rows = await parseExcelBuffer(file.buffer);
+    const result = { imported: 0, skipped: 0, errors: [] as { row: number; reason: string }[] };
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        await this.carsService.create({
+          make: row['Marque'],
+          model: row['Modèle'],
+          year: row['Année'] ? Number(row['Année']) : undefined,
+          plateNumber: row['Numéro de Plaque'],
+          category: row['Catégorie'],
+          dailyRate: row['Tarif Journalier'] ? Number(row['Tarif Journalier']) : undefined,
+          color: row['Couleur'] || undefined,
+          seats: row['Places'] ? Number(row['Places']) : undefined,
+          hasGPS: toBool(row['GPS']),
+          hasBluetooth: toBool(row['Bluetooth']),
+          hasBackupCamera: toBool(row['Caméra de Recul']),
+          hasSunroof: toBool(row['Toit Ouvrant']),
+          hasLeatherSeats: toBool(row['Sièges en Cuir']),
+          description: row['Description'] || undefined,
+        } as any);
+        result.imported++;
+      } catch (e: any) {
+        result.skipped++;
+        result.errors.push({ row: i + 2, reason: e.message || 'Erreur inconnue' });
+      }
+    }
+
+    return result;
+  }
+
   @Get('available')
   @ApiOperation({ summary: 'Get available cars for date range' })
   @ApiQuery({ name: 'startDate', required: true, type: Date })
