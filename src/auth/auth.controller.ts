@@ -97,12 +97,16 @@ export class AuthController {
   @Post('approve/:id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Approve a pending user' })
-  async approveUser(@Request() req, @Param('id') id: string) {
+  @ApiOperation({ summary: 'Approve a pending user, optionally overriding their requested role' })
+  async approveUser(
+    @Request() req,
+    @Param('id') id: string,
+    @Body('grantAdmin') grantAdmin?: boolean,
+  ) {
     if (!req.user?.isSuperAdmin) {
       throw new ForbiddenException('Admin only');
     }
-    return this.authService.approveUser(id);
+    return this.authService.approveUser(id, grantAdmin);
   }
 
   @Post('reject/:id')
@@ -114,5 +118,48 @@ export class AuthController {
       throw new ForbiddenException('Admin only');
     }
     return this.authService.rejectUser(id);
+  }
+
+  // --- Admin user-management (account settings page) ---
+
+  @Get('users')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List all approved users (admin only)' })
+  async getAllUsers(@Request() req) {
+    if (!req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
+    return this.authService.getAllUsers();
+  }
+
+  @Patch('users/:id/role')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Promote or demote an approved user (admin only)' })
+  async setUserRole(
+    @Request() req,
+    @Param('id') id: string,
+    @Body('isSuperAdmin') isSuperAdmin: boolean,
+  ) {
+    if (!req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
+    return this.authService.setUserRole(id, isSuperAdmin);
+  }
+
+  @Patch('users/:id/active')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Suspend or reinstate a user account (admin only)' })
+  async setUserActive(
+    @Request() req,
+    @Param('id') id: string,
+    @Body('isActive') isActive: boolean,
+  ) {
+    if (!req.user?.isSuperAdmin) {
+      throw new ForbiddenException('Admin only');
+    }
+    return this.authService.setUserActive(id, isActive);
   }
 }

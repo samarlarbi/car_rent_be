@@ -36,8 +36,19 @@ export class User {
   @Column({ default: false })
   isApproved: boolean;
 
+  // The actual, currently-granted privilege level. All existing guards
+  // (e.g. req.user?.isSuperAdmin) keep working exactly as before -- this
+  // column is untouched by the new role-request feature until an admin
+  // actually approves/promotes the account.
   @Column({ default: false })
   isSuperAdmin: boolean;
+
+  // What the user asked for at registration ('admin' or 'coworker'). Purely
+  // informational until approval: it does not grant any privilege by
+  // itself, it just tells the approving admin what was requested so they
+  // can decide whether to grant it.
+  @Column({ default: 'coworker' })
+  requestedRole: 'admin' | 'coworker';
 
   @CreateDateColumn()
   createdAt: Date;

@@ -9,7 +9,6 @@ import {
   Query,
   UseGuards,
   ParseUUIDPipe,
-  ParseBoolPipe,
   DefaultValuePipe,
   ParseIntPipe,
   BadRequestException,
@@ -31,7 +30,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { buildExcelBuffer, parseExcelBuffer, toBool } from '../common/excel/excel.util';
+import { buildExcelBuffer, parseExcelBuffer } from '../common/excel/excel.util';
 @ApiTags('customers')
 @Controller('customers')
 
@@ -43,7 +42,7 @@ export class CustomersController {
   @Post()
   @ApiOperation({ summary: 'Create a new customer' })
   @ApiResponse({ status: 201, description: 'Customer created successfully' })
-  @ApiResponse({ status: 409, description: 'Duplicate email or phone' })
+  @ApiResponse({ status: 409, description: 'Duplicate phone' })
   async create(@Body() createCustomerDto: CreateCustomerDto) {
     return this.customersService.create(createCustomerDto);
   }
@@ -51,18 +50,15 @@ export class CustomersController {
   @Get()
   @ApiOperation({ summary: 'Get all customers with filters' })
   @ApiQuery({ name: 'search', required: false, type: String })
-  @ApiQuery({ name: 'isBlacklisted', required: false, type: Boolean })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async findAll(
     @Query('search') search?: string,
-    @Query('isBlacklisted', new ParseBoolPipe({ optional: true })) isBlacklisted?: boolean,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
   ) {
     return this.customersService.findAll({
       search,
-      isBlacklisted,
       page,
       limit,
     });
@@ -76,7 +72,6 @@ export class CustomersController {
     const buffer = await buildExcelBuffer(data as any, [
       { header: 'Prénom', key: 'firstName' },
       { header: 'Nom', key: 'lastName' },
-      { header: 'Email', key: 'email' },
       { header: 'Téléphone', key: 'phone' },
     ]);
 
@@ -102,9 +97,9 @@ export class CustomersController {
         await this.customersService.create({
           firstName: row['Prénom'],
           lastName: row['Nom'] || undefined,
-          email: row['Email'] || undefined,
-          phone: row['Téléphone'] || undefined,
-        } as any);
+          // Excel may give the phone as a number; the service expects a string.
+          phone: row['Téléphone'] ? String(row['Téléphone']).trim() : undefined,
+        });
         result.imported++;
       } catch (e: any) {
         result.skipped++;

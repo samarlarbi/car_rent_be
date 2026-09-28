@@ -3,6 +3,20 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
+/// "John Doe", or just "John" when there is no last name; null when there is no customer.
+function customerNameOf(customer: any): string | null {
+  if (!customer) return null;
+  const full = [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim();
+  return full || customer.fullName || null;
+}
+
+/// "Toyota Camry" when make/model are known, otherwise the plate number.
+function carNameOf(car: any): string | null {
+  if (!car) return null;
+  const name = [car.make, car.model].filter(Boolean).join(' ').trim();
+  return name || car.plateNumber || null;
+}
+
 @ApiTags('dashboard')
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard)
@@ -23,8 +37,6 @@ export class DashboardController {
       totalCars: stats.cars.total,
       totalCustomers: stats.customers.total,
       totalReservations: stats.reservations.total,
-      revenueToday: stats.revenue.today,
-      revenueMonth: stats.revenue.thisMonth,
       upcomingReservations: stats.reservations.upcomingPickups,
     };
   }
@@ -38,11 +50,11 @@ export class DashboardController {
     return reservations.map(r => ({
       id: r.id,
       reservationNumber: r.reservationNumber,
-      customerName: r.customer?.fullName || `${r.customer?.firstName} ${r.customer?.lastName}`.trim(),
+      customerName: customerNameOf(r.customer),
       startDate: r.startDate,
       endDate: r.endDate,
       status: r.status,
-      carName: r.car?.make ? `${r.car.make} ${r.car.model}` : null,
+      carName: carNameOf(r.car),
     }));
   }
 
@@ -53,9 +65,9 @@ export class DashboardController {
     return activity.pickups.map(p => ({
       id: p.id,
       reservationNumber: p.reservationNumber,
-      customerName: p.customer?.fullName || `${p.customer?.firstName} ${p.customer?.lastName}`.trim(),
+      customerName: customerNameOf(p.customer),
       startDate: p.startDate,
-      carName: p.car?.make ? `${p.car.make} ${p.car.model}` : null,
+      carName: carNameOf(p.car),
     }));
   }
 
@@ -66,9 +78,9 @@ export class DashboardController {
     return activity.returns.map(r => ({
       id: r.id,
       reservationNumber: r.reservationNumber,
-      customerName: r.customer?.fullName || `${r.customer?.firstName} ${r.customer?.lastName}`.trim(),
+      customerName: customerNameOf(r.customer),
       endDate: r.endDate,
-      carName: r.car?.make ? `${r.car.make} ${r.car.model}` : null,
+      carName: carNameOf(r.car),
     }));
   }
 

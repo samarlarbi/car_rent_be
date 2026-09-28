@@ -1,33 +1,41 @@
-import { IsEmail, IsString, MinLength, IsOptional } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsString, MinLength, IsOptional, IsIn } from 'class-validator';
 
 export class RegisterDto {
-  @ApiProperty({ example: 'admin@carrental.com', description: 'User email' })
+  @ApiProperty()
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'password123', description: 'User password' })
+  @ApiProperty()
   @IsString()
   @MinLength(6)
   password: string;
 
-  @ApiProperty({ example: 'John', description: 'First name', required: false })
-  @IsString()
+  @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
   firstName?: string;
 
-  @ApiProperty({ example: 'Doe', description: 'Last name', required: false })
-  @IsString()
+  @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
   lastName?: string;
 
-  @ApiProperty({ example: '+1234567890', description: 'Phone number', required: false })
-  @IsString()
+  @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
   phone?: string;
 
-  @ApiProperty({ example: 'en', description: 'Language preference', enum: ['en', 'fr', 'ar'], required: false })
-  @IsString()
+  @ApiPropertyOptional({ enum: ['en', 'fr', 'ar'] })
   @IsOptional()
+  @IsString()
   language?: string;
+
+  // What the user is asking to be, at signup. Purely a request -- an admin
+  // still has to approve the account, and can grant a different role than
+  // requested if they choose to.
+  @ApiPropertyOptional({ enum: ['admin', 'coworker'], default: 'coworker' })
+  @IsOptional()
+  @IsIn(['admin', 'coworker'])
+  requestedRole?: 'admin' | 'coworker';
 }

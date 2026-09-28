@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, Between, LessThan, MoreThan, In } from 'typeorm';
+import { Repository, IsNull, Between, In } from 'typeorm';
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
 import { Customer } from '../customers/entities/customer.entity';
@@ -38,14 +38,6 @@ export class DashboardService {
     };
     customers: {
       total: number;
-      active: number;
-      blacklisted: number;
-    };
-    revenue: {
-      today: number;
-      thisWeek: number;
-      thisMonth: number;
-      outstanding: number;
     };
   }> {
     // Car stats
@@ -122,53 +114,6 @@ export class DashboardService {
 
     // Customer stats
     const totalCustomers = await this.customersRepository.count({ where: { deletedAt: IsNull() } });
-    const activeCustomers = await this.customersRepository.count({
-      where: { isActive: true, deletedAt: IsNull() },
-    });
-    const blacklistedCustomers = await this.customersRepository.count({
-      where: { isBlacklisted: true, deletedAt: IsNull() },
-    });
-
-    // Revenue calculations
-    const completedToday = await this.reservationsRepository
-      .createQueryBuilder('reservation')
-      .select('SUM(reservation.totalPrice)', 'total')
-      .where('reservation.status = :status', { status: ReservationStatus.COMPLETED })
-      .andWhere('reservation.actualReturnDate >= :today', { today })
-      .andWhere('reservation.deletedAt IS NULL')
-      .getRawOne();
-
-    const thisWeekStart = new Date(today);
-    thisWeekStart.setDate(thisWeekStart.getDate() - 7);
-
-    const thisWeekRevenue = await this.reservationsRepository
-      .createQueryBuilder('reservation')
-      .select('SUM(reservation.totalPrice)', 'total')
-      .where('reservation.status = :status', { status: ReservationStatus.COMPLETED })
-      .andWhere('reservation.actualReturnDate >= :weekStart', { weekStart: thisWeekStart })
-      .andWhere('reservation.deletedAt IS NULL')
-      .getRawOne();
-
-    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-
-    const thisMonthRevenue = await this.reservationsRepository
-      .createQueryBuilder('reservation')
-      .select('SUM(reservation.totalPrice)', 'total')
-      .where('reservation.status = :status', { status: ReservationStatus.COMPLETED })
-      .andWhere('reservation.actualReturnDate >= :monthStart', { monthStart: thisMonthStart })
-      .andWhere('reservation.deletedAt IS NULL')
-      .getRawOne();
-
-    // Outstanding payments (confirmed/ongoing reservations not fully paid)
-    const outstandingRevenue = await this.reservationsRepository
-      .createQueryBuilder('reservation')
-      .select('SUM(reservation.totalPrice - reservation.amountPaid)', 'total')
-      .where('reservation.status IN (:...statuses)', {
-        statuses: [ReservationStatus.CONFIRMED, ReservationStatus.ONGOING, ReservationStatus.PENDING],
-      })
-      .andWhere('reservation.isFullyPaid = false')
-      .andWhere('reservation.deletedAt IS NULL')
-      .getRawOne();
 
     return {
       cars: {
@@ -192,14 +137,6 @@ export class DashboardService {
       },
       customers: {
         total: totalCustomers,
-        active: activeCustomers,
-        blacklisted: blacklistedCustomers,
-      },
-      revenue: {
-        today: parseFloat(completedToday?.total || 0),
-        thisWeek: parseFloat(thisWeekRevenue?.total || 0),
-        thisMonth: parseFloat(thisMonthRevenue?.total || 0),
-        outstanding: parseFloat(outstandingRevenue?.total || 0),
       },
     };
   }
@@ -253,7 +190,7 @@ export class DashboardService {
 
   async getAvailableCarsCount(): Promise<number> {
     return this.carsRepository.count({
-      where: { status: CarStatus.AVAILABLE, isActive: true, deletedAt: IsNull() },
+      where: { status: CarStatus.AVAILABLE, deletedAt: IsNull() },
     });
   }
 

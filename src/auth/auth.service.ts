@@ -36,10 +36,16 @@ export class AuthService {
     const userCount = await this.usersRepository.count();
     const isFirstUser = userCount === 0;
 
+    // Whatever role was requested, the very first account on the system
+    // still needs to bootstrap as an approved admin -- there is nobody else
+    // who could approve them.
+    const requestedRole = registerDto.requestedRole === 'admin' ? 'admin' : 'coworker';
+
     const user = this.usersRepository.create({
       ...registerDto,
       password: hashedPassword,
       language: registerDto.language || 'en',
+      requestedRole,
       // First user becomes approved admin; everyone else waits for approval
       isApproved: isFirstUser,
       isActive: isFirstUser,
@@ -57,6 +63,7 @@ export class AuthService {
           email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
+          requestedRole: user.requestedRole,
           isApproved: false,
         },
       };
@@ -102,13 +109,20 @@ export class AuthService {
     return users.map(({ password, refreshToken, ...rest }) => rest);
   }
 
-  async approveUser(userId: string) {
+  /**
+   * Approves a pending account. Grants isSuperAdmin based on what the user
+   * requested at signup, unless the approving admin explicitly overrides it
+   * via `grantAdmin` (e.g. they want to approve someone as a coworker even
+   * though the person asked to be an admin, or vice versa).
+   */
+  async approveUser(userId: string, grantAdmin?: boolean) {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new BadRequestException('User not found');
     }
     user.isApproved = true;
     user.isActive = true;
+    user.isSuperAdmin = grantAdmin !== undefined ? grantAdmin : user.requestedRole === 'admin';
     await this.usersRepository.save(user);
     const { password, refreshToken, ...rest } = user;
     return rest;
@@ -124,6 +138,44 @@ export class AuthService {
     }
     await this.usersRepository.remove(user);
     return { message: 'User registration rejected' };
+  }
+
+  /** For an admin-facing user-management/settings page: every approved account. */
+  async getAllUsers() {
+    const users = await this.usersRepository.find({
+      where: { isApproved: true },
+      order: { firstName: 'ASC', lastName: 'ASC' },
+    });
+    return users.map(({ password, refreshToken, ...rest }) => rest);
+  }
+
+  /** Promote/demote an already-approved user. */
+  async setUserRole(userId: string, isSuperAdmin: boolean) {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+    user.isSuperAdmin = isSuperAdmin;
+    await this.usersRepository.save(user);
+    const { password, refreshToken, ...rest } = user;
+    return rest;
+  }
+
+  /** Suspend/reinstate an account without deleting it. */
+  async setUserActive(userId: string, isActive: boolean) {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+    user.isActive = isActive;
+    if (!isActive) {
+      // Force re-login everywhere once reinstated, rather than letting a
+      // stale refresh token silently keep working.
+      user.refreshToken = null;
+    }
+    await this.usersRepository.save(user);
+    const { password, refreshToken, ...rest } = user;
+    return rest;
   }
 
   async refreshToken(refreshToken: string) {
@@ -163,18 +215,20 @@ export class AuthService {
 
     return null;
   }
-async validateUserById(userId: string) {
-  const user = await this.usersRepository.findOne({
-    where: { id: userId },
-  });
 
-  if (!user || !user.isActive) {
-    return null;
+  async validateUserById(userId: string) {
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user || !user.isActive) {
+      return null;
+    }
+
+    const { password, ...result } = user;
+    return result;
   }
 
-  const { password, ...result } = user;
-  return result;
-}
   async getProfile(userId: string) {
     const user = await this.usersRepository.findOne({
       where: { id: userId },
@@ -225,6 +279,7 @@ async validateUserById(userId: string) {
         phone: user.phone,
         language: user.language,
         isSuperAdmin: user.isSuperAdmin,
+        requestedRole: user.requestedRole,
         isApproved: user.isApproved,
         isActive: user.isActive,
       },

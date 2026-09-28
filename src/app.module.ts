@@ -11,6 +11,10 @@ import { Car } from './cars/entities/car.entity';
 import { Reservation } from './reservations/entities/reservation.entity';
 import { Customer } from './customers/entities/customer.entity';
 import { CronModule } from './cron/cron.module';
+import { OverdueNotification } from './notifications/entities/overdue-notification.entity';
+import { DeviceToken } from './device-tokens/entities/device-token.entity';
+import { DeviceTokensModule } from './device-tokens/device-tokens.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -34,7 +38,7 @@ import { CronModule } from './cron/cron.module';
           return {
             type: 'postgres',
             url: connectionString,
-            entities: [User, Car, Reservation, Customer],
+            entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken],
             synchronize: !isProduction,
             logging: !isProduction,
             ssl: needsSsl ? { rejectUnauthorized: false } : false,
@@ -50,7 +54,7 @@ import { CronModule } from './cron/cron.module';
           ssl: configService.get('DB_SSL', false) === 'true'
             ? { rejectUnauthorized: false }
             : false,
-          entities: [User, Car, Reservation, Customer],
+          entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken],
           synchronize: configService.get('NODE_ENV') === 'development',
           logging: configService.get('NODE_ENV') === 'development',
         };
@@ -62,6 +66,8 @@ import { CronModule } from './cron/cron.module';
     ReservationsModule,
     CustomersModule,
     DashboardModule,
+    DeviceTokensModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

@@ -11,21 +11,21 @@ import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { ReservationStatus } from './entities/reservation.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { 
-  Body, 
-  Controller, 
-  DefaultValuePipe, 
-  Delete, 
-  Get, 
-  Param, 
-  ParseEnumPipe, 
-  ParseIntPipe, 
-  ParseUUIDPipe, 
-  Patch, 
-  Post, 
-  Query, 
-  UseGuards, 
-  Req 
+import {
+  Body,
+  Controller,
+  DefaultValuePipe,
+  Delete,
+  Get,
+  Param,
+  ParseEnumPipe,
+  ParseIntPipe,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+  Req
 } from '@nestjs/common';
 import { Res } from '@nestjs/common';
 import type { Response } from 'express';
@@ -58,17 +58,18 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
     const row = rows[i];
     try {
       const plate = row['Plaque du Véhicule'];
-      const email = row['Email Client'];
+      // Customers are now identified by phone number (there is no email any more).
+      const phone = row['Téléphone Client'];
       if (!plate) throw new Error('Plaque du véhicule manquante');
-      if (!email) throw new Error('Email client manquant');
+      if (!phone) throw new Error('Téléphone client manquant');
 
       // NOTE: adjust to match your real service signatures -- assumes
       // search() returns an array and takes the closest/first match.
-      const [car] = await this.carsService.search(plate);
+      const [car] = await this.carsService.search(String(plate));
       if (!car) throw new Error(`Aucun véhicule trouvé avec la plaque "${plate}"`);
 
-      const [customer] = await this.customersService.search(email);
-      if (!customer) throw new Error(`Aucun client trouvé avec l'email "${email}"`);
+      const [customer] = await this.customersService.search(String(phone));
+      if (!customer) throw new Error(`Aucun client trouvé avec le téléphone "${phone}"`);
 
       await this.reservationsService.create(
         {
@@ -93,7 +94,7 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
   @Post()
   @ApiOperation({ summary: 'Create a new reservation' })
   @ApiResponse({ status: 201, description: 'Reservation created successfully' })
-  @ApiResponse({ status: 400, description: 'Invalid dates or customer blacklisted' })
+  @ApiResponse({ status: 400, description: 'Invalid dates' })
   @ApiResponse({ status: 409, description: 'Car not available for selected dates' })
   async create(@Body() createReservationDto: CreateReservationDto, @Req() req) {
     return this.reservationsService.create(createReservationDto, req.user.id);
@@ -139,7 +140,7 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
     const rows = data.map((r: any) => ({
       reservationNumber: r.reservationNumber,
       carPlate: r.car?.plateNumber,
-      customerEmail: r.customer?.email,
+      customerName: [r.customer?.firstName, r.customer?.lastName].filter(Boolean).join(' '),
       customerPhone: r.customer?.phone,
       startDate: r.startDate,
       endDate: r.endDate,
@@ -150,7 +151,7 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
     const buffer = await buildExcelBuffer(rows, [
       { header: 'Numéro de Réservation', key: 'reservationNumber' },
       { header: 'Plaque du Véhicule', key: 'carPlate' },
-      { header: 'Email Client', key: 'customerEmail' },
+      { header: 'Nom Client', key: 'customerName' },
       { header: 'Téléphone Client', key: 'customerPhone' },
       { header: 'Date de Début', key: 'startDate' },
       { header: 'Date de Fin', key: 'endDate' },
@@ -228,7 +229,6 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
   @ApiOperation({ summary: 'Start a rental (check-out)' })
   @ApiParam({ name: 'id', type: String })
   async startRental(@Param('id', ParseUUIDPipe) id: string) {
-    // Fixed TS2554: Removed req.user.id since your service implementation only accepts 'id'
     return this.reservationsService.startRental(id);
   }
 
@@ -256,27 +256,6 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
     @Req() req,
   ) {
     return this.reservationsService.cancelReservation(id, req.user.id, reason);
-  }
-
-  @Post(':id/payment')
-  @ApiOperation({ summary: 'Record a payment' })
-  @ApiParam({ name: 'id', type: String })
-  async recordPayment(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('amount') amount: number,
-  ) {
-    return this.reservationsService.recordPayment(id, amount);
-  }
-
-  @Post(':id/deposit')
-  @ApiOperation({ summary: 'Record a deposit payment' })
-  @ApiParam({ name: 'id', type: String })
-  async recordDeposit(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('amount') amount: number,
-    @Body('method') method: string,
-  ) {
-    return this.reservationsService.recordDeposit(id, amount, method);
   }
 
   @Delete(':id')

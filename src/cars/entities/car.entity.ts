@@ -6,20 +6,11 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
 } from 'typeorm';
+
 export enum CarStatus {
   AVAILABLE = 'available',
   RESERVED = 'reserved',
   MAINTENANCE = 'maintenance',
-}
-export enum CarCategory {
-  ECONOMY = 'economy',
-  COMPACT = 'compact',
-  SEDAN = 'sedan',
-  SUV = 'suv',
-  LUXURY = 'luxury',
-  VAN = 'van',
-  TRUCK = 'truck',
-  SPORTS = 'sports',
 }
 
 @Entity('cars')
@@ -27,43 +18,15 @@ export class Car {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({nullable: true})
+  // Same definitions as the original entity, so the existing columns and data are untouched.
+  @Column({ nullable: true })
   make: string;
 
-  @Column({nullable: true})
+  @Column({ nullable: true })
   model: string;
 
-  @Column({nullable: true})
-  year: number;
-
-  @Column({ unique: true ,nullable: true})
+  @Column({ unique: true, nullable: true })
   plateNumber: string;
-
-  @Column({
-    type: 'enum',
-    enum: CarCategory,
-    default: CarCategory.SEDAN,
-    
-  })
-  category: CarCategory;
-
-  @Column('decimal', { precision: 10, scale: 2 ,nullable: true})
-  dailyRate: number;
-
-  @Column({ nullable: true })
-  color: string;
-
-  @Column({ nullable: true })
-  vin: string;
-
-  @Column({ nullable: true })
-  mileage: number;
-
-  @Column({ type: 'text', array: true, nullable: true })
-  photos: string[];
-
-  @Column({ type: 'text', nullable: true })
-  description: string;
 
   @Column({
     type: 'enum',
@@ -72,27 +35,9 @@ export class Car {
   })
   status: CarStatus;
 
-  @Column({ default: true })
-  isActive: boolean;
-
-  @Column({ default: 0, nullable: true })
-  seats: number;
-
-  @Column({ default: false })
-  hasGPS: boolean;
-
-  @Column({ default: false })
-  hasBluetooth: boolean;
-
-  @Column({ default: false })
-  hasBackupCamera: boolean;
-
-  @Column({ default: false })
-  hasSunroof: boolean;
-
-  @Column({ default: false })
-  hasLeatherSeats: boolean;
-
+  // --- technical columns (kept on purpose) ---
+  // deletedAt: the code filters `deletedAt: IsNull()` and uses soft delete / restore.
+  // createdAt / updatedAt: harmless bookkeeping, often used for ordering.
   @CreateDateColumn()
   createdAt: Date;
 

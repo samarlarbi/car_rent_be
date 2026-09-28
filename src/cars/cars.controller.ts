@@ -32,10 +32,10 @@ import {
 import { CarsService } from './cars.service';
 import { CreateCarDto } from './dto/create-car.dto';
 import { UpdateCarDto } from './dto/update-car.dto';
-import { CarStatus, CarCategory } from './entities/car.entity';
+import { CarStatus } from './entities/car.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-import { buildExcelBuffer, parseExcelBuffer, toBool } from '../common/excel/excel.util';
+import { buildExcelBuffer, parseExcelBuffer } from '../common/excel/excel.util';
 @ApiTags('cars')
 @Controller('cars')
 @UseGuards(JwtAuthGuard)
@@ -55,26 +55,17 @@ export class CarsController {
   @ApiOperation({ summary: 'Get all cars with filters' })
   @ApiQuery({ name: 'search', required: false, type: String })
   @ApiQuery({ name: 'status', required: false, enum: CarStatus })
-  @ApiQuery({ name: 'category', required: false, enum: CarCategory })
-  @ApiQuery({ name: 'minRate', required: false, type: Number })
-  @ApiQuery({ name: 'maxRate', required: false, type: Number })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async findAll(
     @Query('search') search?: string,
     @Query('status', new ParseEnumPipe(CarStatus, { optional: true })) status?: CarStatus,
-    @Query('category', new ParseEnumPipe(CarCategory, { optional: true })) category?: CarCategory,
-    @Query('minRate') minRate?: number,
-    @Query('maxRate') maxRate?: number,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
   ) {
     return this.carsService.findAll({
       search,
       status,
-      category,
-      minRate,
-      maxRate,
       page,
       limit,
     });
@@ -88,19 +79,8 @@ export class CarsController {
     const buffer = await buildExcelBuffer(data as any, [
       { header: 'Marque', key: 'make' },
       { header: 'Modèle', key: 'model' },
-      { header: 'Année', key: 'year' },
       { header: 'Numéro de Plaque', key: 'plateNumber' },
-      { header: 'Catégorie', key: 'category' },
-      { header: 'Tarif Journalier', key: 'dailyRate' },
-      { header: 'Couleur', key: 'color' },
       { header: 'Statut', key: 'status' },
-      { header: 'Places', key: 'seats' },
-      { header: 'GPS', key: 'hasGPS' },
-      { header: 'Bluetooth', key: 'hasBluetooth' },
-      { header: 'Caméra de Recul', key: 'hasBackupCamera' },
-      { header: 'Toit Ouvrant', key: 'hasSunroof' },
-      { header: 'Sièges en Cuir', key: 'hasLeatherSeats' },
-      { header: 'Description', key: 'description' },
     ]);
 
     res.set({
@@ -122,22 +102,14 @@ export class CarsController {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
+        const plate = String(row['Numéro de Plaque'] ?? '').trim();
+        if (!plate) throw new Error('Numéro de plaque manquant');
+
         await this.carsService.create({
-          make: row['Marque'],
-          model: row['Modèle'],
-          year: row['Année'] ? Number(row['Année']) : undefined,
-          plateNumber: row['Numéro de Plaque'],
-          category: row['Catégorie'],
-          dailyRate: row['Tarif Journalier'] ? Number(row['Tarif Journalier']) : undefined,
-          color: row['Couleur'] || undefined,
-          seats: row['Places'] ? Number(row['Places']) : undefined,
-          hasGPS: toBool(row['GPS']),
-          hasBluetooth: toBool(row['Bluetooth']),
-          hasBackupCamera: toBool(row['Caméra de Recul']),
-          hasSunroof: toBool(row['Toit Ouvrant']),
-          hasLeatherSeats: toBool(row['Sièges en Cuir']),
-          description: row['Description'] || undefined,
-        } as any);
+          make: row['Marque'] ? String(row['Marque']).trim() : undefined,
+          model: row['Modèle'] ? String(row['Modèle']).trim() : undefined,
+          plateNumber: plate,
+        });
         result.imported++;
       } catch (e: any) {
         result.skipped++;
@@ -152,16 +124,13 @@ export class CarsController {
   @ApiOperation({ summary: 'Get available cars for date range' })
   @ApiQuery({ name: 'startDate', required: true, type: Date })
   @ApiQuery({ name: 'endDate', required: true, type: Date })
-  @ApiQuery({ name: 'category', required: false, type: String })
   async getAvailableCars(
     @Query('startDate') startDate: Date,
     @Query('endDate') endDate: Date,
-    @Query('category') category?: string,
   ) {
     return this.carsService.getAvailableCars(
       new Date(startDate),
       new Date(endDate),
-      category,
     );
   }
 

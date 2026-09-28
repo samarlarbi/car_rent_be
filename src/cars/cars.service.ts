@@ -2,26 +2,22 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
-  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, Between, IsNull, In, LessThan, MoreThan, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-import { Car, CarStatus, CarCategory } from './entities/car.entity';
+import { Repository, Like, IsNull, In, LessThan, MoreThan } from 'typeorm';
+import { Car, CarStatus } from './entities/car.entity';
 import { CreateCarDto } from './dto/create-car.dto';
 import { UpdateCarDto } from './dto/update-car.dto';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
 
 @Injectable()
 export class CarsService {
- 
-constructor(
+  constructor(
     @InjectRepository(Car)
     private carsRepository: Repository<Car>,
     @InjectRepository(Reservation)
     private reservationsRepository: Repository<Reservation>,
   ) {}
-
-  
 
   async create(createCarDto: CreateCarDto): Promise<Car> {
     // Check for duplicate plate number
@@ -40,20 +36,12 @@ constructor(
   async findAll(params?: {
     search?: string;
     status?: CarStatus;
-    category?: CarCategory;
-    minRate?: number;
-    maxRate?: number;
-    startDate?: Date;
-    endDate?: Date;
     page?: number;
     limit?: number;
   }): Promise<{ data: Car[]; total: number; page: number; pages: number; perPage: number }> {
     const {
       search,
       status,
-      category,
-      minRate,
-      maxRate,
       page = 1,
       limit = 20,
     } = params || {};
@@ -62,18 +50,6 @@ constructor(
     const base: any = { deletedAt: IsNull() };
     if (status) {
       base.status = status;
-    }
-    if (category) {
-      base.category = category;
-    }
-
-    // Explicitly fix TypeORM operators for relational pricing ranges
-    if (minRate !== undefined && maxRate !== undefined) {
-      base.dailyRate = Between(minRate, maxRate);
-    } else if (minRate !== undefined) {
-      base.dailyRate = MoreThanOrEqual(minRate);
-    } else if (maxRate !== undefined) {
-      base.dailyRate = LessThanOrEqual(maxRate);
     }
 
     // Search across make, model AND plate number (OR conditions)
@@ -103,6 +79,7 @@ constructor(
       perPage: limit,
     };
   }
+
   async findOne(id: string): Promise<Car> {
     const car = await this.carsRepository.findOne({
       where: { id, deletedAt: IsNull() },
@@ -151,26 +128,18 @@ constructor(
     return this.carsRepository.save(car);
   }
 
-
   async restore(id: string): Promise<Car> {
     await this.carsRepository.restore(id);
     return this.findOne(id);
   }
 
-  async getAvailableCars(startDate: Date, endDate: Date, category?: string): Promise<Car[]> {
+  async getAvailableCars(startDate: Date, endDate: Date): Promise<Car[]> {
     // Get all available cars first
-    const whereClause: any = {
-      status: CarStatus.AVAILABLE,
-      isActive: true,
-      deletedAt: IsNull(),
-    };
-
-    if (category) {
-      whereClause.category = category;
-    }
-
     const availableCars = await this.carsRepository.find({
-      where: whereClause,
+      where: {
+        status: CarStatus.AVAILABLE,
+        deletedAt: IsNull(),
+      },
     });
 
     // If no date range provided, return all available cars
@@ -180,7 +149,7 @@ constructor(
 
     // Filter out cars that have overlapping reservations
     const carIds = availableCars.map(car => car.id);
-    
+
     if (carIds.length === 0) {
       return [];
     }
@@ -209,14 +178,14 @@ constructor(
     rented: number;
     reserved: number;
     maintenance: number;
-    byCategory: any[];
   }> {
     const total = await this.carsRepository.count({ where: { deletedAt: IsNull() } });
     const available = await this.carsRepository.count({
       where: { status: CarStatus.AVAILABLE, deletedAt: IsNull() },
     });
     const rented = await this.carsRepository.count({
-where: { status: CarStatus.RESERVED, deletedAt: IsNull() },    });
+      where: { status: CarStatus.RESERVED, deletedAt: IsNull() },
+    });
     const reserved = await this.carsRepository.count({
       where: { status: CarStatus.RESERVED, deletedAt: IsNull() },
     });
@@ -224,15 +193,7 @@ where: { status: CarStatus.RESERVED, deletedAt: IsNull() },    });
       where: { status: CarStatus.MAINTENANCE, deletedAt: IsNull() },
     });
 
-    const byCategory = await this.carsRepository
-      .createQueryBuilder('car')
-      .select('car.category', 'category')
-      .addSelect('COUNT(*)', 'count')
-      .where('car.deletedAt IS NULL')
-      .groupBy('car.category')
-      .getRawMany();
-
-    return { total, available, rented, reserved, maintenance, byCategory };
+    return { total, available, rented, reserved, maintenance };
   }
 
   async search(query: string): Promise<Car[]> {
@@ -245,9 +206,10 @@ where: { status: CarStatus.RESERVED, deletedAt: IsNull() },    });
       take: 10,
     });
   }
+
   async remove(id: string): Promise<void> {
     // Ensure the car exists before proceeding
-    const car = await this.findOne(id);
+    await this.findOne(id);
 
     // Soft-delete and cancel all active reservations for this car
     await this.reservationsRepository.update(

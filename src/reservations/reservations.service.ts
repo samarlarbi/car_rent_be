@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, IsNull, Between, LessThan, MoreThan, In, Not, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
+import { Repository, Like, IsNull, Between, LessThan, MoreThan, In, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { Reservation, ReservationStatus } from './entities/reservation.entity';
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { Customer } from '../customers/entities/customer.entity';
@@ -59,22 +59,17 @@ export class ReservationsService {
       throw new NotFoundException('Car not found');
     }
 
-    // Check if customer exists
-   // Customer is optional. Only look it up / validate it if an ID was provided.
-let customer: Customer | null = null;
-if (createReservationDto.customerId) {
-  customer = await this.customersRepository.findOne({
-    where: { id: createReservationDto.customerId, deletedAt: IsNull() },
-  });
+    // Customer is optional. Only look it up if an ID was provided.
+    if (createReservationDto.customerId) {
+      const customer = await this.customersRepository.findOne({
+        where: { id: createReservationDto.customerId, deletedAt: IsNull() },
+      });
 
-  if (!customer) {
-    throw new NotFoundException('Customer not found');
-  }
+      if (!customer) {
+        throw new NotFoundException('Customer not found');
+      }
+    }
 
-  if (customer.isBlacklisted) {
-    throw new BadRequestException('Customer is blacklisted');
-  }
-}
     // Check for overlapping reservations
     const overlapping = await this.reservationsRepository.findOne({
       where: {
@@ -92,23 +87,12 @@ if (createReservationDto.customerId) {
 
     const reservationNumber = await this.generateReservationNumber();
 
-   // Calculate total days and price. Fall back to the car's own dailyRate
-// if the client didn't send one (dailyRate is optional now).
-const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-const discount = createReservationDto.discount || 0;
-const effectiveDailyRate = createReservationDto.dailyRate ?? car.dailyRate ?? 0;
-const totalPrice = Math.max(0, (effectiveDailyRate * totalDays) - discount);
-
-const reservation = this.reservationsRepository.create({
-  reservationNumber,
-  carId: createReservationDto.carId,
-  customerId: createReservationDto.customerId ?? null,
-   startDate,
+    const reservation = this.reservationsRepository.create({
+      reservationNumber,
+      carId: createReservationDto.carId,
+      customerId: createReservationDto.customerId ?? null,
+      startDate,
       endDate,
-      dailyRate: effectiveDailyRate,
-      discount,
-      totalPrice,
-      depositAmount: createReservationDto.depositAmount || 0,
       pickupLocation: createReservationDto.pickupLocation,
       dropoffLocation: createReservationDto.dropoffLocation,
       notes: createReservationDto.notes,
@@ -122,7 +106,10 @@ const reservation = this.reservationsRepository.create({
       await this.carsRepository.update(car.id, { status: CarStatus.RESERVED });
     }
 
-    return saved;
+    // save() does not load the eager relations, so its result has no `car` / `customer`.
+    // Re-read the reservation so the response carries them, like the list and detail
+    // endpoints do. Otherwise the app shows "Unknown Make" until the next reload.
+    return this.findOne(saved.id);
   }
 
   async findAll(params?: {
@@ -163,13 +150,13 @@ const reservation = this.reservationsRepository.create({
     if (customerId) {
       where.customerId = customerId;
     }
-if (startDate && endDate) {
-  where.startDate = Between(startDate, endDate);
-} else if (startDate) {
-  where.startDate = MoreThanOrEqual(startDate);
-} else if (endDate) {
-  where.endDate = LessThanOrEqual(endDate);
-}
+    if (startDate && endDate) {
+      where.startDate = Between(startDate, endDate);
+    } else if (startDate) {
+      where.startDate = MoreThanOrEqual(startDate);
+    } else if (endDate) {
+      where.endDate = LessThanOrEqual(endDate);
+    }
 
     const skip = (page - 1) * limit;
 
@@ -209,19 +196,24 @@ if (startDate && endDate) {
   async update(id: string, updateReservationDto: UpdateReservationDto, userId?: string): Promise<Reservation> {
     const reservation = await this.findOne(id);
 
-    // Handle deposit payment
-    if (updateReservationDto.depositPaid && !reservation.depositPaid) {
-      (updateReservationDto as any).depositPaidAt = new Date();
+    // If customerId is being updated, verify the new customer exists
+    if (updateReservationDto.customerId !== undefined) {
+      if (updateReservationDto.customerId) {
+        const customer = await this.customersRepository.findOne({
+          where: { id: updateReservationDto.customerId, deletedAt: IsNull() },
+        });
+        if (!customer) {
+          throw new NotFoundException('Customer not found');
+        }
+        reservation.customerId = updateReservationDto.customerId;
+      } else {
+        reservation.customerId = null as any;
+      }
     }
 
-    // If the dates change, make sure the new window does not overlap another
-    // active reservation for the same car (excluding this one).
-    const newStartDate = updateReservationDto.startDate
-      ? new Date(updateReservationDto.startDate)
-      : null;
-    const newEndDate = updateReservationDto.endDate
-      ? new Date(updateReservationDto.endDate)
-      : null;
+    // If the dates change, validate no overlapping active reservations
+    const newStartDate = updateReservationDto.startDate ? new Date(updateReservationDto.startDate) : null;
+    const newEndDate = updateReservationDto.endDate ? new Date(updateReservationDto.endDate) : null;
 
     if (newStartDate || newEndDate) {
       const start = newStartDate ?? new Date(reservation.startDate);
@@ -246,26 +238,39 @@ if (startDate && endDate) {
       }
     }
 
-    // Handle status transitions
+    // Handle status transitions & audit metadata explicitly
     if (updateReservationDto.status && updateReservationDto.status !== reservation.status) {
+      reservation.status = updateReservationDto.status;
       const newStatus = updateReservationDto.status;
 
       if (newStatus === ReservationStatus.CONFIRMED) {
-        (updateReservationDto as any).confirmedBy = userId;
-        (updateReservationDto as any).confirmedAt = new Date();
+        reservation.confirmedBy = userId || reservation.confirmedBy;
+        reservation.confirmedAt = new Date();
       } else if (newStatus === ReservationStatus.ONGOING) {
-        (updateReservationDto as any).actualPickupDate = new Date();
+        reservation.actualPickupDate = new Date();
       } else if (newStatus === ReservationStatus.COMPLETED) {
-        (updateReservationDto as any).completedBy = userId;
-        (updateReservationDto as any).completedAt = new Date();
-        (updateReservationDto as any).actualReturnDate = new Date();
+        reservation.completedBy = userId || reservation.completedBy;
+        reservation.completedAt = new Date();
+        reservation.actualReturnDate = new Date();
       } else if (newStatus === ReservationStatus.CANCELLED) {
-        (updateReservationDto as any).cancelledBy = userId;
-        (updateReservationDto as any).cancelledAt = new Date();
+        reservation.cancelledBy = userId || reservation.cancelledBy;
+        reservation.cancelledAt = new Date();
       }
     }
 
-    Object.assign(reservation, updateReservationDto);
+    // Explicitly copy valid entity fields so TypeORM marks them dirty and saves them
+    if (updateReservationDto.status !== undefined) reservation.status = updateReservationDto.status;
+    if (updateReservationDto.startDate !== undefined) reservation.startDate = new Date(updateReservationDto.startDate);
+    if (updateReservationDto.endDate !== undefined) reservation.endDate = new Date(updateReservationDto.endDate);
+    if (updateReservationDto.notes !== undefined) reservation.notes = updateReservationDto.notes;
+    if (updateReservationDto.pickupLocation !== undefined) reservation.pickupLocation = updateReservationDto.pickupLocation;
+    if (updateReservationDto.dropoffLocation !== undefined) reservation.dropoffLocation = updateReservationDto.dropoffLocation;
+    if (updateReservationDto.returnOdometer !== undefined) reservation.returnOdometer = updateReservationDto.returnOdometer;
+    if (updateReservationDto.returnNotes !== undefined) reservation.returnNotes = updateReservationDto.returnNotes;
+    if (updateReservationDto.cancelReason !== undefined) reservation.cancelReason = updateReservationDto.cancelReason;
+    if (updateReservationDto.pickupOdometer !== undefined) reservation.pickupOdometer = updateReservationDto.pickupOdometer;
+    if (updateReservationDto.pickupNotes !== undefined) reservation.pickupNotes = updateReservationDto.pickupNotes;
+
     const saved = await this.reservationsRepository.save(reservation);
 
     // Keep the car status in sync with the reservation lifecycle.
@@ -273,7 +278,6 @@ if (startDate && endDate) {
 
     return saved;
   }
-
   /// Maps a reservation status to the car status it implies. Cars only ever
   /// sit in AVAILABLE, RESERVED, or MAINTENANCE (there is no separate
   /// "rented" car status — a reservation that is currently ongoing still
@@ -339,35 +343,42 @@ if (startDate && endDate) {
     returnOdometer?: number;
     returnNotes?: string;
   }): Promise<Reservation> {
+    const reservation = await this.findOne(id);
+    const now = new Date();
+
+    // A rental cannot be returned before it has started. Without this check, calling
+    // this endpoint on a future reservation silently marked it "completed" days before
+    // its start date, which is what produced the "Terminée" reservation seen in testing.
+    if (now < reservation.startDate) {
+      throw new BadRequestException('This reservation has not started yet');
+    }
+
+    const effectiveEndDate =
+      now > reservation.startDate
+        ? now
+        : new Date(reservation.startDate.getTime() + 60 * 60 * 1000);
+
+    console.log('🔵 Computed effectiveEndDate:', effectiveEndDate);
+
     const updates: any = {
       status: ReservationStatus.COMPLETED,
+      endDate: effectiveEndDate,
       ...returnData,
     };
 
-    return this.update(id, updates, userId);
+    console.log('🔵 Updates object being sent to update():', updates);
+
+    const result = await this.update(id, updates, userId);
+
+    console.log('🔵 Final saved reservation endDate:', result.endDate);
+
+    return result;
   }
 
   async cancelReservation(id: string, userId: string, reason: string): Promise<Reservation> {
     return this.update(id, {
       status: ReservationStatus.CANCELLED,
       cancelReason: reason,
-    });
-  }
-
-  async recordPayment(id: string, amount: number, userId?: string): Promise<Reservation> {
-    const reservation = await this.findOne(id);
-    
-    reservation.amountPaid += amount;
-    reservation.isFullyPaid = reservation.amountPaid >= reservation.totalPrice;
-
-    return this.reservationsRepository.save(reservation);
-  }
-
-  async recordDeposit(id: string, amount: number, method: string): Promise<Reservation> {
-    return this.update(id, {
-      depositAmount: amount,
-      depositPaid: true,
-      depositMethod: method,
     });
   }
 

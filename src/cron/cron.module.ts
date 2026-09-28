@@ -4,9 +4,14 @@ import { Reservation } from '../reservations/entities/reservation.entity';
 import { Car } from '../cars/entities/car.entity';
 import { CronService } from './cron.service';
 import { CronController } from './cron.controller';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { OverdueNotification } from '../notifications/entities/overdue-notification.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Reservation, Car])],
+  imports: [
+    TypeOrmModule.forFeature([Reservation, Car, OverdueNotification]),
+    NotificationsModule,
+  ],
   controllers: [CronController],
   providers: [CronService],
 })
