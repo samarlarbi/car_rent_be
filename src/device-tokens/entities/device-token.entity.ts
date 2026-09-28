@@ -1,5 +1,5 @@
- import { User } from '@/auth/entities/user.entity';
-import {
+
+import { User } from '../../auth/entities/user.entity';import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
