@@ -18,6 +18,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
+  
   imports: [
     CronModule,
     ScheduleModule.forRoot(),
