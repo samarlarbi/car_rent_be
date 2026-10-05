@@ -82,7 +82,7 @@ export class CustomersController {
     res.send(buffer);
   }
 
-  @Post('import')
+ @Post('import')
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Import customers from an Excel file' })
   async importCustomers(@UploadedFile() file: { buffer: Buffer }) {
@@ -94,10 +94,11 @@ export class CustomersController {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
+        // 👇 Combine Prénom and Nom into a single fullName string
+        const fullName = [row['Prénom'], row['Nom']].filter(Boolean).join(' ').trim();
+        
         await this.customersService.create({
-          firstName: row['Prénom'],
-          lastName: row['Nom'] || undefined,
-          // Excel may give the phone as a number; the service expects a string.
+          fullName: fullName.length > 0 ? fullName : 'Unknown', // 👈 Fixed
           phone: row['Téléphone'] ? String(row['Téléphone']).trim() : undefined,
         });
         result.imported++;
@@ -109,7 +110,6 @@ export class CustomersController {
 
     return result;
   }
-
   @Get('stats')
   @ApiOperation({ summary: 'Get customer statistics' })
   async getStats() {

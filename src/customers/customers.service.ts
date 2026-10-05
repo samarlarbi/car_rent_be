@@ -8,6 +8,7 @@ import { Repository, Like, IsNull } from 'typeorm';
 import { Customer } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import leven from 'leven';
 
 @Injectable()
 export class CustomersService {
@@ -16,32 +17,95 @@ export class CustomersService {
     private customersRepository: Repository<Customer>,
   ) {}
 
-  /// "John Doe", or just "John" when there is no last name (avoids "John null").
-  private withFullName<T extends Customer>(customer: T): T {
-    customer.fullName = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
-    return customer;
+  /**
+   * Helper to normalize strings for comparison (lowercase, remove extra spaces/accents)
+   */
+  private normalizeString(str?: string): string {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents (é -> e, etc.)
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Checks if a new name is too similar to an existing customer name using Levenshtein distance.
+   */
+  private async checkSimilarName(fullName: string): Promise<void> {
+    const normalizedNewName = this.normalizeString(fullName);
+    if (!normalizedNewName) return;
+
+    // Fetch all active customers to check against
+    const existingCustomers = await this.customersRepository.find({
+      where: { deletedAt: IsNull() },
+      select: ['id', 'fullName'],
+    });
+
+    for (const customer of existingCustomers) {
+      const normalizedExisting = this.normalizeString(customer.fullName);
+      if (!normalizedExisting) continue;
+
+      // Exact match check
+      if (normalizedExisting === normalizedNewName) {
+        throw new ConflictException(`A customer with the name "${customer.fullName}" already exists.`);
+      }
+
+      // Levenshtein fuzzy distance check for typos like "kamel" vs "kaml"
+      const distance = leven(normalizedNewName, normalizedExisting);
+      
+      // Calculate allowed threshold based on length (e.g., allow 1 typo for short names, 2 for longer ones)
+      const maxLength = Math.max(normalizedNewName.length, normalizedExisting.length);
+      const threshold = maxLength <= 6 ? 1 : 2;
+
+      if (distance <= threshold) {
+        throw new ConflictException(
+          `A very similar customer name already exists: "${customer.fullName}". Please check for duplicates.`
+        );
+      }
+    }
   }
 
   async create(createCustomerDto: CreateCustomerDto) {
-    const dto = { ...createCustomerDto } as Omit<CreateCustomerDto, 'phone'> & {
+    const dto = { ...createCustomerDto } as Omit<CreateCustomerDto, 'phone' | 'cin'> & {
       phone?: string | null;
+      cin?: string | null;
     };
 
-    // Normalize empty strings to null so the unique constraint on
-    // phone never trips on blank values (500 errors otherwise).
+    // Normalize empty strings to null
     if (dto.phone !== undefined && dto.phone !== null && dto.phone.trim() === '') {
       dto.phone = null;
     }
+    if (dto.cin !== undefined && dto.cin !== null && dto.cin.trim() === '') {
+      dto.cin = null;
+    }
 
-    // Only check for duplicates if a phone was actually provided
+    // 1. Check duplicate phone if provided
     if (dto.phone) {
       const existingByPhone = await this.customersRepository.findOne({
-        where: { phone: dto.phone },
+        where: { phone: dto.phone, deletedAt: IsNull() },
       });
 
       if (existingByPhone) {
         throw new ConflictException('A customer with this phone number already exists.');
       }
+    }
+
+    // 2. Check duplicate CIN if provided (Ensures CIN is strictly unique)
+    if (dto.cin) {
+      const existingByCin = await this.customersRepository.findOne({
+        where: { cin: dto.cin, deletedAt: IsNull() },
+      });
+
+      if (existingByCin) {
+        throw new ConflictException('A customer with this CIN already exists.');
+      }
+    }
+
+    // 3. Check fuzzy name similarity (Catches typos like "kamel" vs "kaml")
+    if (dto.fullName) {
+      await this.checkSimilarName(dto.fullName);
     }
 
     const newCustomer = this.customersRepository.create(dto);
@@ -61,12 +125,11 @@ export class CustomersService {
 
     const base: any = { deletedAt: IsNull() };
 
-    // Search across first name, last name AND phone (OR conditions)
     const where: any = search
       ? [
-          { ...base, firstName: Like(`%${search}%`) },
-          { ...base, lastName: Like(`%${search}%`) },
+          { ...base, fullName: Like(`%${search}%`) },
           { ...base, phone: Like(`%${search}%`) },
+          { ...base, cin: Like(`%${search}%`) },
         ]
       : base;
 
@@ -79,10 +142,6 @@ export class CustomersService {
       take: limit,
     });
 
-    // Add computed fullName
-    data.forEach(c => this.withFullName(c));
-
-    // `perPage` keeps the response contract consistent with reservations.
     return {
       data,
       total,
@@ -101,7 +160,7 @@ export class CustomersService {
       throw new NotFoundException('Customer not found');
     }
 
-    return this.withFullName(customer);
+    return customer;
   }
 
   async findByPhone(phone: string): Promise<Customer> {
@@ -113,22 +172,25 @@ export class CustomersService {
       throw new NotFoundException('Customer not found');
     }
 
-    return this.withFullName(customer);
+    return customer;
   }
 
   async update(id: string, updateCustomerDto: UpdateCustomerDto): Promise<Customer> {
     const customer = await this.findOne(id);
 
-    const dto = { ...updateCustomerDto } as Omit<UpdateCustomerDto, 'phone'> & {
+    const dto = { ...updateCustomerDto } as Omit<UpdateCustomerDto, 'phone' | 'cin'> & {
       phone?: string | null;
+      cin?: string | null;
     };
 
-    // Normalize empty strings to null so the unique constraint never trips
     if (dto.phone !== undefined && dto.phone !== null && dto.phone.trim() === '') {
       dto.phone = null;
     }
+    if (dto.cin !== undefined && dto.cin !== null && dto.cin.trim() === '') {
+      dto.cin = null;
+    }
 
-    // Check for duplicate phone if changed
+    // Check duplicate phone if changed
     if (dto.phone && dto.phone !== customer.phone) {
       const existing = await this.customersRepository.findOne({
         where: { phone: dto.phone, deletedAt: IsNull() },
@@ -139,9 +201,42 @@ export class CustomersService {
       }
     }
 
+    // Check duplicate CIN if changed
+    if (dto.cin && dto.cin !== customer.cin) {
+      const existing = await this.customersRepository.findOne({
+        where: { cin: dto.cin, deletedAt: IsNull() },
+      });
+
+      if (existing && existing.id !== id) {
+        throw new ConflictException('Customer with this CIN already exists');
+      }
+    }
+
+    // Check fuzzy name similarity if changed
+    if (dto.fullName && dto.fullName !== customer.fullName) {
+      const normalizedNewName = this.normalizeString(dto.fullName);
+      const existingCustomers = await this.customersRepository.find({
+        where: { deletedAt: IsNull() },
+        select: ['id', 'fullName'],
+      });
+
+      for (const existing of existingCustomers) {
+        if (existing.id === id) continue;
+        const normalizedExisting = this.normalizeString(existing.fullName);
+        const distance = leven(normalizedNewName, normalizedExisting);
+        const maxLength = Math.max(normalizedNewName.length, normalizedExisting.length);
+        const threshold = maxLength <= 6 ? 1 : 2;
+
+        if (distance <= threshold) {
+          throw new ConflictException(
+            `A very similar customer name already exists: "${existing.fullName}".`
+          );
+        }
+      }
+    }
+
     Object.assign(customer, dto);
-    const saved = await this.customersRepository.save(customer);
-    return this.withFullName(saved);
+    return await this.customersRepository.save(customer);
   }
 
   async remove(id: string): Promise<void> {
@@ -157,14 +252,12 @@ export class CustomersService {
   async search(query: string): Promise<Customer[]> {
     const customers = await this.customersRepository.find({
       where: [
-        { firstName: Like(`%${query}%`), deletedAt: IsNull() },
-        { lastName: Like(`%${query}%`), deletedAt: IsNull() },
+        { fullName: Like(`%${query}%`), deletedAt: IsNull() },
         { phone: Like(`%${query}%`), deletedAt: IsNull() },
+        { cin: Like(`%${query}%`), deletedAt: IsNull() },
       ],
       take: 10,
     });
-
-    customers.forEach(c => this.withFullName(c));
 
     return customers;
   }

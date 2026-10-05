@@ -133,8 +133,7 @@ export class CarsService {
     return this.findOne(id);
   }
 
-  async getAvailableCars(startDate: Date, endDate: Date): Promise<Car[]> {
-    // Get all available cars first
+ async getAvailableCars(startDate: Date, endDate: Date): Promise<Car[]> {
     const availableCars = await this.carsRepository.find({
       where: {
         status: CarStatus.AVAILABLE,
@@ -142,36 +141,30 @@ export class CarsService {
       },
     });
 
-    // If no date range provided, return all available cars
     if (!startDate || !endDate) {
       return availableCars;
     }
 
-    // Filter out cars that have overlapping reservations
     const carIds = availableCars.map(car => car.id);
-
     if (carIds.length === 0) {
       return [];
     }
 
-    // Get reservations that overlap with the date range
+    // A car is booked if there is an overlapping reservation that is CONFIRMED or EN_COURS
     const overlappingReservations = await this.reservationsRepository.find({
       where: {
         carId: In(carIds),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING, ReservationStatus.PENDING]),
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
         deletedAt: IsNull(),
         startDate: LessThan(endDate),
         endDate: MoreThan(startDate),
       },
     });
 
-    // Get unique car IDs that are already reserved
     const reservedCarIds = [...new Set(overlappingReservations.map(r => r.carId))];
 
-    // Filter out reserved cars
     return availableCars.filter(car => !reservedCarIds.includes(car.id));
   }
-
   async getStats(): Promise<{
     total: number;
     available: number;

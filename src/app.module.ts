@@ -15,10 +15,12 @@ import { OverdueNotification } from './notifications/entities/overdue-notificati
 import { DeviceToken } from './device-tokens/entities/device-token.entity';
 import { DeviceTokensModule } from './device-tokens/device-tokens.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
     CronModule,
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -59,6 +61,7 @@ import { NotificationsModule } from './notifications/notifications.module';
           logging: configService.get('NODE_ENV') === 'development',
         };
       },
+      
       inject: [ConfigService],
     }),
     AuthModule,

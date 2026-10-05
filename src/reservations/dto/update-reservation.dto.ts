@@ -10,6 +10,7 @@ export class UpdateReservationDto extends PartialType(
   @ApiPropertyOptional({ enum: ReservationStatus })
   @IsEnum(ReservationStatus)
   @IsOptional()
+  
   status?: ReservationStatus;
 
   @ApiPropertyOptional()

@@ -65,7 +65,7 @@ export class DashboardService {
 
     const totalReservations = await this.reservationsRepository.count({ where: { deletedAt: IsNull() } });
     const pendingReservations = await this.reservationsRepository.count({
-      where: { status: ReservationStatus.PENDING, deletedAt: IsNull() },
+      where: { status: ReservationStatus.CONFIRMED, deletedAt: IsNull() },
     });
     const confirmedReservations = await this.reservationsRepository.count({
       where: { status: ReservationStatus.CONFIRMED, deletedAt: IsNull() },
@@ -83,7 +83,7 @@ export class DashboardService {
     const todayPickups = await this.reservationsRepository.count({
       where: {
         startDate: Between(today, tomorrow),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.PENDING]),
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
         deletedAt: IsNull(),
       },
     });
@@ -99,7 +99,7 @@ export class DashboardService {
     const upcomingPickups = await this.reservationsRepository.count({
       where: {
         startDate: Between(tomorrow, next7Days),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.PENDING]),
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
         deletedAt: IsNull(),
       },
     });
@@ -150,7 +150,7 @@ export class DashboardService {
     return this.reservationsRepository.find({
       where: {
         startDate: Between(today, endDate),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.PENDING]),
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
         deletedAt: IsNull(),
       },
       order: { startDate: 'ASC' },
@@ -170,7 +170,7 @@ export class DashboardService {
     const pickups = await this.reservationsRepository.find({
       where: {
         startDate: Between(today, tomorrow),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.PENDING]),
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
         deletedAt: IsNull(),
       },
       order: { startDate: 'ASC' },

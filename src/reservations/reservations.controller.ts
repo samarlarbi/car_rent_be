@@ -25,7 +25,7 @@ import {
   Post,
   Query,
   UseGuards,
-  Req
+  Req,
 } from '@nestjs/common';
 import { Res } from '@nestjs/common';
 import type { Response } from 'express';
@@ -35,62 +35,62 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { parseExcelBuffer } from '../common/excel/excel.util';
 import { CarsService } from '../cars/cars.service';
 import { CustomersService } from '../customers/customers.service';
+
 @ApiTags('reservations')
 @Controller('reservations')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class ReservationsController {
-  constructor(  private readonly reservationsService: ReservationsService,
-  private readonly carsService: CarsService,
-  private readonly customersService: CustomersService,) {}
+  constructor(
+    private readonly reservationsService: ReservationsService,
+    private readonly carsService: CarsService,
+    private readonly customersService: CustomersService,
+  ) {}
 
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Import reservations from an Excel file' })
+  async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
+    if (!file) throw new BadRequestException('No file uploaded');
 
-@Post('import')
-@UseInterceptors(FileInterceptor('file'))
-@ApiOperation({ summary: 'Import reservations from an Excel file' })
-async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
-  if (!file) throw new BadRequestException('No file uploaded');
+    const rows = await parseExcelBuffer(file.buffer);
+    const result = { imported: 0, skipped: 0, errors: [] as { row: number; reason: string }[] };
 
-  const rows = await parseExcelBuffer(file.buffer);
-  const result = { imported: 0, skipped: 0, errors: [] as { row: number; reason: string }[] };
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      try {
+        const plate = row['Plaque du Véhicule'];
+        const phone = row['Téléphone Client'];
+        if (!plate) throw new Error('Plaque du véhicule manquante');
+        if (!phone) throw new Error('Téléphone client manquant');
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    try {
-      const plate = row['Plaque du Véhicule'];
-      // Customers are now identified by phone number (there is no email any more).
-      const phone = row['Téléphone Client'];
-      if (!plate) throw new Error('Plaque du véhicule manquante');
-      if (!phone) throw new Error('Téléphone client manquant');
+        const [car] = await this.carsService.search(String(plate));
+        if (!car) throw new Error(`Aucun véhicule trouvé avec la plaque "${plate}"`);
 
-      // NOTE: adjust to match your real service signatures -- assumes
-      // search() returns an array and takes the closest/first match.
-      const [car] = await this.carsService.search(String(plate));
-      if (!car) throw new Error(`Aucun véhicule trouvé avec la plaque "${plate}"`);
+        const [customer] = await this.customersService.search(String(phone));
+        if (!customer) throw new Error(`Aucun client trouvé avec le téléphone "${phone}"`);
 
-      const [customer] = await this.customersService.search(String(phone));
-      if (!customer) throw new Error(`Aucun client trouvé avec le téléphone "${phone}"`);
-
-      await this.reservationsService.create(
-        {
-          carId: car.id,
-          customerId: customer.id,
-          startDate: row['Date de Début'],
-          endDate: row['Date de Fin'],
-          status: row['Statut'] || undefined,
-          notes: row['Notes'] || undefined,
-        } as any,
-        req.user.id,
-      );
-      result.imported++;
-    } catch (e: any) {
-      result.skipped++;
-      result.errors.push({ row: i + 2, reason: e.message || 'Erreur inconnue' });
+        await this.reservationsService.create(
+          {
+            carId: car.id,
+            customerId: customer.id,
+            startDate: row['Date de Début'],
+            endDate: row['Date de Fin'],
+            status: row['Statut'] || undefined,
+            notes: row['Notes'] || undefined,
+          } as any,
+          req.user.id,
+        );
+        result.imported++;
+      } catch (e: any) {
+        result.skipped++;
+        result.errors.push({ row: i + 2, reason: e.message || 'Erreur inconnue' });
+      }
     }
+
+    return result;
   }
 
-  return result;
-}
   @Post()
   @ApiOperation({ summary: 'Create a new reservation' })
   @ApiResponse({ status: 201, description: 'Reservation created successfully' })
@@ -138,7 +138,6 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
     const { data } = await this.reservationsService.findAll({ page: 1, limit: 1_000_000 });
 
     const rows = data.map((r: any) => ({
-      reservationNumber: r.reservationNumber,
       carPlate: r.car?.plateNumber,
       customerName: [r.customer?.firstName, r.customer?.lastName].filter(Boolean).join(' '),
       customerPhone: r.customer?.phone,
@@ -149,7 +148,6 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
     }));
 
     const buffer = await buildExcelBuffer(rows, [
-      { header: 'Numéro de Réservation', key: 'reservationNumber' },
       { header: 'Plaque du Véhicule', key: 'carPlate' },
       { header: 'Nom Client', key: 'customerName' },
       { header: 'Téléphone Client', key: 'customerPhone' },
@@ -235,27 +233,15 @@ async importReservations(@UploadedFile() file: { buffer: Buffer }, @Req() req) {
   @Post(':id/complete')
   @ApiOperation({ summary: 'Complete a rental (check-in)' })
   @ApiParam({ name: 'id', type: String })
-  async completeRental(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Req() req,
-    @Body('returnOdometer') returnOdometer?: number,
-    @Body('returnNotes') returnNotes?: string,
-  ) {
-    return this.reservationsService.completeRental(id, req.user.id, {
-      returnOdometer,
-      returnNotes,
-    });
+  async completeRental(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
+return this.reservationsService.completeRental(id);
   }
 
   @Post(':id/cancel')
   @ApiOperation({ summary: 'Cancel a reservation' })
   @ApiParam({ name: 'id', type: String })
-  async cancelReservation(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('reason') reason: string,
-    @Req() req,
-  ) {
-    return this.reservationsService.cancelReservation(id, req.user.id, reason);
+  async cancelReservation(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
+    return this.reservationsService.cancelReservation(id, req.user.id);
   }
 
   @Delete(':id')

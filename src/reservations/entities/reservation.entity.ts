@@ -12,9 +12,8 @@ import { Car } from '../../cars/entities/car.entity';
 import { Customer } from '../../customers/entities/customer.entity';
 
 export enum ReservationStatus {
-  PENDING = 'pending',
   CONFIRMED = 'confirmed',
-  ONGOING = 'ongoing',
+  ONGOING = 'en_cours',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
 }
@@ -23,9 +22,6 @@ export enum ReservationStatus {
 export class Reservation {
   @PrimaryGeneratedColumn('uuid')
   id: string;
-
-  @Column({ unique: true })
-  reservationNumber: string;
 
   @ManyToOne(() => Car, { eager: true })
   @JoinColumn({ name: 'carId' })
@@ -47,60 +43,18 @@ export class Reservation {
   @Column()
   endDate: Date;
 
+  @Column({ type: 'timestamp', nullable: true })
+  actualReturnDate: Date;
+
   @Column({
     type: 'enum',
     enum: ReservationStatus,
-    default: ReservationStatus.PENDING,
+    default: ReservationStatus.CONFIRMED,
   })
   status: ReservationStatus;
 
   @Column({ type: 'text', nullable: true })
   notes: string;
-
-  @Column({ nullable: true })
-  pickupLocation: string;
-
-  @Column({ nullable: true })
-  dropoffLocation: string;
-
-  @Column({ nullable: true })
-  actualPickupDate: Date;
-
-  @Column({ nullable: true })
-  actualReturnDate: Date;
-
-  @Column({ nullable: true })
-  pickupOdometer: number;
-
-  @Column({ nullable: true })
-  returnOdometer: number;
-
-  @Column({ type: 'text', nullable: true })
-  pickupNotes: string;
-
-  @Column({ type: 'text', nullable: true })
-  returnNotes: string;
-
-  @Column({ nullable: true })
-  confirmedBy: string;
-
-  @Column({ nullable: true })
-  confirmedAt: Date;
-
-  @Column({ nullable: true })
-  cancelledBy: string;
-
-  @Column({ nullable: true })
-  cancelledAt: Date;
-
-  @Column({ nullable: true })
-  cancelReason: string;
-
-  @Column({ nullable: true })
-  completedBy: string;
-
-  @Column({ nullable: true })
-  completedAt: Date;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -111,6 +65,6 @@ export class Reservation {
   @DeleteDateColumn()
   deletedAt: Date;
 
-  // Computed field
+  // Computed field (not stored in DB)
   totalDays?: number;
 }

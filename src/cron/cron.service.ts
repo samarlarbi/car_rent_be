@@ -23,19 +23,9 @@ export class CronService {
   /**
    * Keeps reservation/car statuses in sync with the current time:
    * - CONFIRMED reservations whose date range includes today -> ONGOING,
-   *   and their car -> RENTED.
+   *   and their car -> RENTED/RESERVED.
    * - ONGOING reservations whose endDate has passed -> COMPLETED,
-   *   and their car -> AVAILABLE, as soon as the end date/time has passed
-   *   (same day, not the next calendar day) -- no manual "Return car" click
-   *   needed for a booking that simply ran its course on schedule.
-   *
-   * NOTE: this makes the car bookable again automatically the moment the
-   * booked period ends, regardless of whether the car was actually handed
-   * back in person. checkOverdueReturns() below still alerts staff on the
-   * end day so the physical return/paperwork isn't missed even though the
-   * system no longer blocks re-booking on it.
-   *
-   * Cars currently in MAINTENANCE are never overwritten by this job.
+   *   and their car -> AVAILABLE, as soon as the end date/time has passed.
    */
   async syncCarAndReservationStatuses() {
     const now = new Date();
@@ -56,12 +46,8 @@ export class CronService {
       relations: ['car'],
     });
 
-    // 1. Reservations that should START today
     for (const reservation of toStart) {
       reservation.status = ReservationStatus.ONGOING;
-      if (!reservation.actualPickupDate) {
-        reservation.actualPickupDate = now;
-      }
       await this.reservationRepo.save(reservation);
 
       if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
@@ -71,8 +57,6 @@ export class CronService {
     }
 
     // 2. Reservations that should COMPLETE: ongoing, and endDate has passed
-    //    (as of right now, not "as of the start of today" -- this is what
-    //    makes the car free up the same day the booking ends).
     const toComplete = await this.reservationRepo.find({
       where: {
         status: ReservationStatus.ONGOING,
@@ -83,10 +67,6 @@ export class CronService {
 
     for (const reservation of toComplete) {
       reservation.status = ReservationStatus.COMPLETED;
-      reservation.completedAt = now;
-      if (!reservation.actualReturnDate) {
-        reservation.actualReturnDate = now;
-      }
       await this.reservationRepo.save(reservation);
 
       if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
@@ -110,16 +90,6 @@ export class CronService {
    * Pushes a "return due" alert to all active staff for any rental whose
    * endDate has already passed, once per reservation (deduped via the
    * OverdueNotification table).
-   *
-   * Deliberately NOT filtered to status ONGOING: since
-   * syncCarAndReservationStatuses() now auto-completes a reservation the
-   * same day its endDate passes, this reservation may already be COMPLETED
-   * by the time this runs. It still needs the push -- the whole point is to
-   * remind staff to physically collect the car / do the paperwork, which is
-   * a separate concern from whether the system has already freed the car
-   * for re-booking. Reservations that were never picked up at all (still
-   * PENDING/CONFIRMED) are intentionally excluded -- there's nothing to
-   * "return" if the car was never taken out.
    */
   async checkOverdueReturns() {
     const now = new Date();
@@ -151,9 +121,6 @@ export class CronService {
           reservationId: reservation.id,
           type: 'overdue_return',
         });
-        // Record success only after the push actually goes out, so a
-        // failed send (e.g. Firebase misconfigured) gets retried on the
-        // next cron run instead of being silently marked "done".
         await this.overdueNotificationRepo.save(
           this.overdueNotificationRepo.create({ reservationId: reservation.id }),
         );

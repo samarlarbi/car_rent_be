@@ -1,86 +1,75 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { initializeApp, cert, App } from 'firebase-admin/app';
-import { getMessaging } from 'firebase-admin/messaging';
-import { DeviceTokensService } from '../device-tokens/device-tokens.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { DeviceToken } from '../device-tokens/entities/device-token.entity';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getMessaging, MulticastMessage } from 'firebase-admin/messaging';
 
 @Injectable()
-export class NotificationsService implements OnModuleInit {
+export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
-  private app: App | undefined;
 
   constructor(
-    private readonly configService: ConfigService,
-    private readonly deviceTokensService: DeviceTokensService,
-  ) {}
-
-  onModuleInit() {
-    // Read from env vars rather than a JSON file path: Vercel's filesystem
-    // is read-only/ephemeral in production, so the service account key
-    // lives in project environment variables instead.
-    const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
-    const clientEmail = this.configService.get<string>('FIREBASE_CLIENT_EMAIL');
-    // The .env value keeps literal "\n" sequences (can't store real
-    // newlines in a single-line env var); convert them back here.
-    const privateKey = this.configService
-      .get<string>('FIREBASE_PRIVATE_KEY')
-      ?.replace(/\\n/g, '\n');
-
-    if (!projectId || !clientEmail || !privateKey) {
-      this.logger.warn(
-        'Firebase credentials missing (FIREBASE_PROJECT_ID/CLIENT_EMAIL/PRIVATE_KEY) — push notifications disabled.',
-      );
-      return;
+    @InjectRepository(DeviceToken)
+    private deviceTokenRepository: Repository<DeviceToken>,
+  ) {
+    if (!getApps().length) {
+      initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        }),
+      });
     }
-
-    this.app = initializeApp({
-      credential: cert({ projectId, clientEmail, privateKey }),
-    });
-    this.logger.log('Firebase Admin initialized');
   }
 
-  private async send(tokens: string[], title: string, body: string, data?: Record<string, string>) {
-    if (!this.app || tokens.length === 0) return;
-
-    const response = await getMessaging(this.app).sendEachForMulticast({
-      tokens,
-      notification: { title, body },
-      data,
-    });
-
-    // Prune tokens FCM reports as dead (uninstalled app, expired token,
-    // etc.) so the token table doesn't accumulate junk and future sends
-    // don't keep failing against them.
-    const deadTokens: string[] = [];
-    response.responses.forEach((r, i) => {
-      if (!r.success) {
-        const code = r.error?.code;
-        if (
-          code === 'messaging/invalid-registration-token' ||
-          code === 'messaging/registration-token-not-registered'
-        ) {
-          deadTokens.push(tokens[i]);
-        } else {
-          this.logger.warn(`Push send failed for token ${tokens[i]}: ${r.error?.message}`);
-        }
-      }
-    });
-    if (deadTokens.length > 0) {
-      await this.deviceTokensService.removeTokens(deadTokens);
-    }
-
-    this.logger.log(
-      `Push sent: ${response.successCount} succeeded, ${response.failureCount} failed`,
-    );
-  }
-
-  async sendToUser(userId: string, title: string, body: string, data?: Record<string, string>) {
-    const tokens = await this.deviceTokensService.getTokensForUser(userId);
-    await this.send(tokens, title, body, data);
-  }
-
+  /**
+   * Méthode appelée par vos Cron jobs pour notifier tout le staff actif
+   */
   async sendToAllActiveStaff(title: string, body: string, data?: Record<string, string>) {
-    const tokens = await this.deviceTokensService.getAllActiveStaffTokens();
-    await this.send(tokens, title, body, data);
+    return this.sendPushNotification(title, body, data);
+  }
+
+  async sendPushNotification(title: string, body: string, data?: Record<string, string>) {
+    try {
+      // Récupération de tous les tokens enregistrés (sans deletedAt si non géré par l'entité)
+      const tokensRecords = await this.deviceTokenRepository.find();
+      const tokens = tokensRecords.map((t) => t.token);
+
+      if (tokens.length === 0) {
+        this.logger.warn('Aucun token FCM trouvé pour envoyer la notification.');
+        return;
+      }
+
+      const message: MulticastMessage = {
+        tokens,
+        notification: {
+          title,
+          body,
+        },
+        data: data || {},
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channelId: 'high_importance_channel',
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default',
+              contentAvailable: true,
+            },
+          },
+        },
+      };
+
+      const response = await getMessaging().sendEachForMulticast(message);
+      this.logger.log(`Notifications envoyées : ${response.successCount} réussies, ${response.failureCount} échecs.`);
+    } catch (error) {
+      this.logger.error('Erreur lors de l\'envoi de la notification FCM', error);
+    }
   }
 }
