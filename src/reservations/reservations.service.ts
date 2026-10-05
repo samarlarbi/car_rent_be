@@ -11,7 +11,6 @@ import { Car, CarStatus } from '../cars/entities/car.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationsService } from '@/notifications/notifications.service';
 
 @Injectable()
@@ -25,7 +24,7 @@ export class ReservationsService {
     private carsRepository: Repository<Car>,
     @InjectRepository(Customer)
     private customersRepository: Repository<Customer>,
-    private readonly notificationsService: NotificationsService, // <-- ICI
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(createReservationDto: CreateReservationDto, userId: string): Promise<Reservation> {
@@ -79,7 +78,6 @@ export class ReservationsService {
 
     const saved = await this.reservationsRepository.save(reservation);
 
-    // Ne change le statut de la voiture qu'si la résa commence aujourd'hui ou dans le passé
     const now = new Date();
     if (startDate <= now && car.status === CarStatus.AVAILABLE) {
       await this.carsRepository.update(car.id, { status: CarStatus.RESERVED });
@@ -338,13 +336,8 @@ export class ReservationsService {
     return this.update(id, { status: ReservationStatus.CANCELLED }, userId);
   }
 
-  // --- AUTOMATED CRON REMINDERS ---
+  // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
 
- // --- AUTOMATED CRON REMINDERS ---
-
- // --- AUTOMATED CRON REMINDERS ---
-
-  @Cron(CronExpression.EVERY_DAY_AT_8AM)
   async handleReturnReminders() {
     this.logger.log('Vérification des retours prévus aujourd\'hui...');
     
@@ -376,8 +369,6 @@ export class ReservationsService {
     }
   }
 
-  // <--- METTEZ LA NOUVELLE MÉTHODE ICI --->
-  @Cron('0 9 * * *') // S'exécute une seule fois par jour, tous les jours à 9h00 du matin
   async handleOverdueRentals() {
     this.logger.log('Vérification quotidienne des locations en retard...');
     const now = new Date();
@@ -408,7 +399,6 @@ export class ReservationsService {
   }
 
   async getStats(): Promise<any> {
-    // ... reste de votre code
     const total = await this.reservationsRepository.count({ where: { deletedAt: IsNull() } });
     const confirmed = await this.reservationsRepository.count({ where: { status: ReservationStatus.CONFIRMED, deletedAt: IsNull() } });
     const ongoing = await this.reservationsRepository.count({ where: { status: ReservationStatus.ONGOING, deletedAt: IsNull() } });
