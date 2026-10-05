@@ -15,13 +15,12 @@ import { OverdueNotification } from './notifications/entities/overdue-notificati
 import { DeviceToken } from './device-tokens/entities/device-token.entity';
 import { DeviceTokensModule } from './device-tokens/device-tokens.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { ScheduleModule } from '@nestjs/schedule';
+// SUPPRIMÉ : import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
-  
   imports: [
     CronModule,
-    ScheduleModule.forRoot(),
+    // SUPPRIMÉ : ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -32,8 +31,6 @@ import { ScheduleModule } from '@nestjs/schedule';
         const isProduction = configService.get('NODE_ENV') === 'production';
         const connectionString = configService.get('DB_CONNECTION_STRING');
         if (connectionString) {
-          // Hosted Postgres providers (Neon, Supabase, Railway…) require SSL
-          // in production; local databases must NOT use it.
           const needsSsl =
             isProduction ||
             /sslmode=require/.test(connectionString) ||
@@ -62,7 +59,6 @@ import { ScheduleModule } from '@nestjs/schedule';
           logging: configService.get('NODE_ENV') === 'development',
         };
       },
-      
       inject: [ConfigService],
     }),
     AuthModule,
