@@ -165,9 +165,10 @@ export class ReservationsService {
 
     return reservation;
   }
-
-  async update(id: string, updateReservationDto: UpdateReservationDto, userId?: string): Promise<Reservation> {
+async update(id: string, updateReservationDto: UpdateReservationDto, userId?: string): Promise<Reservation> {
     const reservation = await this.findOne(id);
+    const oldCarId = reservation.carId; // Track the previous car ID
+    let carChanged = false;
 
     if (updateReservationDto.customerId !== undefined) {
       if (updateReservationDto.customerId) {
@@ -186,7 +187,10 @@ export class ReservationsService {
     const newStartDate = updateReservationDto.startDate ? new Date(updateReservationDto.startDate) : null;
     const newEndDate = updateReservationDto.endDate ? new Date(updateReservationDto.endDate) : null;
 
-    if (newStartDate || newEndDate) {
+    // Check overlaps using the target carId (new one if provided, otherwise existing)
+    const targetCarId = updateReservationDto.carId !== undefined ? updateReservationDto.carId : reservation.carId;
+
+    if (newStartDate || newEndDate || (updateReservationDto.carId !== undefined && updateReservationDto.carId !== reservation.carId)) {
       const start = newStartDate ?? new Date(reservation.startDate);
       const end = newEndDate ?? new Date(reservation.endDate);
 
@@ -194,19 +198,21 @@ export class ReservationsService {
         throw new BadRequestException('End date must be after start date');
       }
 
-      const overlapping = await this.reservationsRepository.findOne({
-        where: {
-          carId: reservation.carId,
-          status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
-          deletedAt: IsNull(),
-          id: Not(reservation.id),
-          startDate: LessThan(end),
-          endDate: MoreThan(start),
-        },
-      });
+      if (targetCarId) {
+        const overlapping = await this.reservationsRepository.findOne({
+          where: {
+            carId: targetCarId,
+            status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
+            deletedAt: IsNull(),
+            id: Not(reservation.id),
+            startDate: LessThan(end),
+            endDate: MoreThan(start),
+          },
+        });
 
-      if (overlapping) {
-        throw new ConflictException('Car is not available for the selected dates');
+        if (overlapping) {
+          throw new ConflictException('Car is not available for the selected dates');
+        }
       }
     }
 
@@ -222,22 +228,41 @@ export class ReservationsService {
     if (updateReservationDto.notes !== undefined) {
       reservation.notes = updateReservationDto.notes;
     }
-if (updateReservationDto.carId !== undefined) {
-  if (updateReservationDto.carId) {
-    const car = await this.carsRepository.findOne({
-      where: { id: updateReservationDto.carId, deletedAt: IsNull() },
-    });
-    if (!car) {
-      throw new NotFoundException('Car not found');
+
+    if (updateReservationDto.carId !== undefined) {
+      if (updateReservationDto.carId) {
+        const car = await this.carsRepository.findOne({
+          where: { id: updateReservationDto.carId, deletedAt: IsNull() },
+        });
+        if (!car) {
+          throw new NotFoundException('Car not found');
+        }
+        if (reservation.carId !== updateReservationDto.carId) {
+          carChanged = true;
+          reservation.carId = updateReservationDto.carId;
+          reservation.car = car; // ✅ Explicitly set relation object for TypeORM
+        }
+      } else {
+        if (reservation.carId) carChanged = true;
+        reservation.carId = null as any;
+        reservation.car = null as any;
+      }
     }
-    reservation.carId = updateReservationDto.carId;
-  }
-}
+
     const saved = await this.reservationsRepository.save(reservation);
-    await this.syncCarStatus(reservation.carId, saved.status);
+    
+    // Sync status for the new/current car
+    if (saved.carId) {
+      await this.syncCarStatus(saved.carId, saved.status);
+    }
 
-return this.findOne(saved.id);  }
+    // If the car was changed, release/sync the old car's status as well
+    if (carChanged && oldCarId) {
+      await this.syncCarStatus(oldCarId, ReservationStatus.CANCELLED);
+    }
 
+    return this.findOne(saved.id);
+  }
   private async syncCarStatus(carId: string, status: ReservationStatus): Promise<void> {
     try {
       const now = new Date();
