@@ -167,7 +167,7 @@ export class ReservationsService {
   }
 async update(id: string, updateReservationDto: UpdateReservationDto, userId?: string): Promise<Reservation> {
     const reservation = await this.findOne(id);
-    const oldCarId = reservation.carId; // Track the previous car ID
+    const oldCarId = reservation.carId;
     let carChanged = false;
 
     if (updateReservationDto.customerId !== undefined) {
@@ -179,15 +179,16 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
           throw new NotFoundException('Customer not found');
         }
         reservation.customerId = updateReservationDto.customerId;
+        reservation.customer = customer; // ✅ Explicitly set the customer relation object as well
       } else {
         reservation.customerId = null as any;
+        reservation.customer = null as any;
       }
     }
 
     const newStartDate = updateReservationDto.startDate ? new Date(updateReservationDto.startDate) : null;
     const newEndDate = updateReservationDto.endDate ? new Date(updateReservationDto.endDate) : null;
 
-    // Check overlaps using the target carId (new one if provided, otherwise existing)
     const targetCarId = updateReservationDto.carId !== undefined ? updateReservationDto.carId : reservation.carId;
 
     if (newStartDate || newEndDate || (updateReservationDto.carId !== undefined && updateReservationDto.carId !== reservation.carId)) {
@@ -240,7 +241,7 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
         if (reservation.carId !== updateReservationDto.carId) {
           carChanged = true;
           reservation.carId = updateReservationDto.carId;
-          reservation.car = car; // ✅ Explicitly set relation object for TypeORM
+          reservation.car = car;
         }
       } else {
         if (reservation.carId) carChanged = true;
@@ -251,12 +252,10 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
 
     const saved = await this.reservationsRepository.save(reservation);
     
-    // Sync status for the new/current car
     if (saved.carId) {
       await this.syncCarStatus(saved.carId, saved.status);
     }
 
-    // If the car was changed, release/sync the old car's status as well
     if (carChanged && oldCarId) {
       await this.syncCarStatus(oldCarId, ReservationStatus.CANCELLED);
     }
