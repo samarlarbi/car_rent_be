@@ -236,7 +236,8 @@ if (updateReservationDto.carId !== undefined) {
     const saved = await this.reservationsRepository.save(reservation);
     await this.syncCarStatus(reservation.carId, saved.status);
 
-return this.findOne(saved.id);  }
+    return saved;
+  }
 
   private async syncCarStatus(carId: string, status: ReservationStatus): Promise<void> {
     try {
