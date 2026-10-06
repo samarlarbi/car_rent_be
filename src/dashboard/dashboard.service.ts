@@ -201,5 +201,25 @@ export class DashboardService {
         deletedAt: IsNull(),
       },
     });
+    
   }
+  async getTodayEnds(): Promise<any[]> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  return this.reservationsRepository.find({
+    where: {
+      endDate: Between(today, tomorrow),
+      status: In([
+        ReservationStatus.CONFIRMED,
+        ReservationStatus.ONGOING,
+      ]),
+      deletedAt: IsNull(),
+    },
+    relations: ['car', 'customer'],
+    order: { endDate: 'ASC' },
+  });
+}
 }

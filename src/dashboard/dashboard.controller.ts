@@ -89,7 +89,20 @@ export class DashboardController {
   async getAvailableCarsCount() {
     return { available: await this.dashboardService.getAvailableCarsCount() };
   }
-
+@Get('today-ends')
+@ApiOperation({ summary: 'Get reservations that end today' })
+async getTodayEnds() {
+  const reservations = await this.dashboardService.getTodayEnds();
+  return reservations.map(r => ({
+    id: r.id,
+    reservationNumber: r.reservationNumber,
+    customerName: customerNameOf(r.customer),
+    startDate: r.startDate,
+    endDate: r.endDate,
+    status: r.status,
+    carName: carNameOf(r.car),
+  }));
+}
   @Get('active-reservations')
   @ApiOperation({ summary: 'Get count of active reservations' })
   async getActiveReservationsCount() {
