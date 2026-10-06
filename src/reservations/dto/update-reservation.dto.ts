@@ -5,7 +5,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { ReservationStatus } from '../entities/reservation.entity';
 
 export class UpdateReservationDto extends PartialType(
-  OmitType(CreateReservationDto, ['carId', 'dailyRate'] as const),
+  OmitType(CreateReservationDto, [] as const),
 ) {
   @ApiPropertyOptional({ enum: ReservationStatus })
   @IsEnum(ReservationStatus)
@@ -22,7 +22,9 @@ export class UpdateReservationDto extends PartialType(
   @IsDateString()
   @IsOptional()
   endDate?: string;
-
+@ApiPropertyOptional()
+@IsOptional()
+carId?: string;
   @ApiPropertyOptional()
   @IsNumber()
   @Min(0)

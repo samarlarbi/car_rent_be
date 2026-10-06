@@ -222,7 +222,17 @@ export class ReservationsService {
     if (updateReservationDto.notes !== undefined) {
       reservation.notes = updateReservationDto.notes;
     }
-
+if (updateReservationDto.carId !== undefined) {
+  if (updateReservationDto.carId) {
+    const car = await this.carsRepository.findOne({
+      where: { id: updateReservationDto.carId, deletedAt: IsNull() },
+    });
+    if (!car) {
+      throw new NotFoundException('Car not found');
+    }
+    reservation.carId = updateReservationDto.carId;
+  }
+}
     const saved = await this.reservationsRepository.save(reservation);
     await this.syncCarStatus(reservation.carId, saved.status);
 
