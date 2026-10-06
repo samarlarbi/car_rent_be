@@ -11,8 +11,7 @@ import { Car, CarStatus } from '../cars/entities/car.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
-import { NotificationsService } from '@/notifications/notifications.service';
-
+import { NotificationsService } from '../notifications/notifications.service';
 @Injectable()
 export class ReservationsService {
   private readonly logger = new (require('@nestjs/common').Logger)(ReservationsService.name);
