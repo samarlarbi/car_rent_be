@@ -35,26 +35,22 @@ export class NotificationsService {
     try {
       // Récupération de tous les tokens enregistrés (sans deletedAt si non géré par l'entité)
       const tokensRecords = await this.deviceTokenRepository.find();
-      const tokens = tokensRecords.map((t) => t.token);
-
+const tokens = [...new Set(tokensRecords.map((t) => t.token))];
       if (tokens.length === 0) {
         this.logger.warn('Aucun token FCM trouvé pour envoyer la notification.');
         return;
       }
 
-      const message: MulticastMessage = {
+    const message: MulticastMessage = {
         tokens,
-        notification: {
-          title,
-          body,
+        // ❌ Remove the top-level 'notification' block so Android doesn't auto-show it
+        data: {
+          ...(data || {}),
+          title: title, // Pass title inside data
+          body: body,   // Pass body inside data
         },
-        data: data || {},
         android: {
           priority: 'high',
-          notification: {
-            sound: 'default',
-            channelId: 'high_importance_channel',
-          },
         },
         apns: {
           payload: {

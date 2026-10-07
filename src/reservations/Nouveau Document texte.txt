@@ -323,73 +323,133 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
     });
   }
 
-  async completeRental(
-    id: string,
-    actualReturnDate?: Date,
-    newEndDate?: Date,
-  ): Promise<Reservation> {
+/**
+   * OPTION A: User says YES -> The car is returned and rental is completed.
+   * Car status automatically syncs back to AVAILABLE.
+   */
+async completeRental(id: string, actualReturnDate?: Date): Promise<Reservation> {
     const reservation = await this.findOne(id);
     const now = new Date();
 
-    if (now < reservation.startDate && reservation.status !== ReservationStatus.ONGOING) {
-      throw new BadRequestException('This reservation has not started yet');
+    // Ensure both confirmed and ongoing rentals can be returned early or completed
+    if (![ReservationStatus.CONFIRMED, ReservationStatus.ONGOING].includes(reservation.status)) {
+      throw new BadRequestException('Only active or ongoing rentals can be completed');
     }
 
-    const finalEndDate = newEndDate ? new Date(newEndDate) : new Date(reservation.endDate);
+    const returnDate = actualReturnDate ? new Date(actualReturnDate) : now;
 
-    if (newEndDate && finalEndDate > new Date(reservation.endDate)) {
-      const overlapping = await this.reservationsRepository.findOne({
-        where: {
-          carId: reservation.carId,
-          status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
-          deletedAt: IsNull(),
-          id: Not(reservation.id),
-          startDate: LessThan(finalEndDate),
-          endDate: MoreThan(reservation.startDate),
-        },
-      });
-
-      if (overlapping) {
-        throw new ConflictException('Cannot extend: Car is booked for another reservation during this period');
-      }
-      reservation.endDate = finalEndDate;
-    }
-
+    // Truncate or set the actual return date/end date
+    reservation.endDate = returnDate > new Date(reservation.endDate) ? reservation.endDate : returnDate;
     reservation.status = ReservationStatus.COMPLETED;
-    reservation.actualReturnDate = actualReturnDate ? new Date(actualReturnDate) : now;
+    reservation.actualReturnDate = returnDate;
 
     const saved = await this.reservationsRepository.save(reservation);
     await this.syncCarStatus(reservation.carId, saved.status);
 
     return saved;
   }
+ async extendRental(
+    id: string,
+    newEndDate?: Date,
+    daysToAdd?: number,
+    newStartDate?: Date,
+  ): Promise<Reservation & { numberOfDays?: number }> {
+    const reservation = await this.findOne(id);
 
+    const parseLocalDate = (dateInput: Date | string) => {
+      if (typeof dateInput === 'string') {
+        const datePart = dateInput.split('T')[0];
+        const [year, month, day] = datePart.split('-').map(Number);
+        return new Date(year, month - 1, day, 0, 0, 0, 0);
+      }
+      const d = new Date(dateInput);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+    };
+
+    let finalStart = newStartDate ? parseLocalDate(newStartDate) : parseLocalDate(reservation.startDate);
+    let finalEnd: Date;
+
+    if (newEndDate) {
+      finalEnd = parseLocalDate(newEndDate);
+    } else if (daysToAdd) {
+      const currentEnd = parseLocalDate(reservation.endDate);
+      currentEnd.setDate(currentEnd.getDate() + Number(daysToAdd));
+      finalEnd = currentEnd;
+    } else {
+      finalEnd = parseLocalDate(reservation.endDate);
+    }
+
+    if (finalEnd <= finalStart) {
+      throw new BadRequestException('End date must be after start date');
+    }
+
+    // Check availability overlaps for the new window
+    const overlapping = await this.reservationsRepository.findOne({
+      where: {
+        carId: reservation.carId,
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
+        deletedAt: IsNull(),
+        id: Not(reservation.id),
+        startDate: LessThan(finalEnd),
+        endDate: MoreThan(finalStart),
+      },
+    });
+
+    if (overlapping) {
+      throw new ConflictException('Cannot modify: Car is booked for another reservation during this period');
+    }
+
+    // Ensure we force them into clean UTC midnights before saving 
+    reservation.startDate = new Date(Date.UTC(finalStart.getFullYear(), finalStart.getMonth(), finalStart.getDate()));
+    reservation.endDate = new Date(Date.UTC(finalEnd.getFullYear(), finalEnd.getMonth(), finalEnd.getDate()));
+
+    // If it was completed/cancelled, you can optionally reactivate it or keep its status context. 
+    // If you want it to become ONGOING or CONFIRMED when dates are adjusted into current time:
+    const now = new Date();
+    if (reservation.startDate <= now && reservation.endDate > now) {
+      reservation.status = ReservationStatus.ONGOING;
+    } else if (reservation.startDate > now) {
+      reservation.status = ReservationStatus.CONFIRMED;
+    }
+
+    const saved = await this.reservationsRepository.save(reservation);
+    
+    // === CRITICAL: SYNC CAR STATUS IMMEDIATELY AFTER SAVING ===
+    await this.syncCarStatus(saved.carId, saved.status);
+
+    const diffTime = Math.abs(finalEnd.getTime() - finalStart.getTime());
+    const numberOfDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+    return {
+      ...saved,
+      numberOfDays,
+    };
+  }
   async cancelReservation(id: string, userId: string): Promise<Reservation> {
     return this.update(id, { status: ReservationStatus.CANCELLED }, userId);
-  }
-
-  // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
-
- // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
+  }  // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
 
   async handleReturnReminders() {
-    this.logger.log('Vérification des retours prévus dans les 10 prochaines minutes...');
+    this.logger.log('Vérification des retours prévus aujourd\'hui...');
     
-    const now = new Date();
-    const tenMinutesLater = new Date(now.getTime() + 10 * 60 * 1000);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
 
-    const dueSoon = await this.reservationsRepository.find({
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const dueToday = await this.reservationsRepository.find({
       where: {
         status: ReservationStatus.ONGOING,
-        endDate: Between(now, tenMinutesLater),
+        endDate: Between(todayStart, todayEnd),
         deletedAt: IsNull(),
       },
       relations: ['car', 'customer'],
     });
 
-    for (const res of dueSoon) {
-      const title = '🚗 Rappel de retour imminent';
-      const body = `La voiture ${res.car?.make} ${res.car?.model} (${res.car?.plateNumber}) louée par ${res.customer?.fullName || 'Client'} doit être retournée d'ici 10 minutes.`;
+    for (const res of dueToday) {
+      const title = '🚗 Rappel de retour aujourd\'hui';
+      const body = `La voiture ${res.car?.make} ${res.car?.model} (${res.car?.plateNumber}) louée par ${res.customer?.fullName || 'Client'} doit être retournée aujourd'hui.`;
       
       this.logger.log(body);
 
@@ -468,4 +528,219 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
     });
   }
   
+}import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, Like, IsNull, In, LessThan, MoreThan } from 'typeorm';
+import { Car, CarStatus } from './entities/car.entity';
+import { CreateCarDto } from './dto/create-car.dto';
+import { UpdateCarDto } from './dto/update-car.dto';
+import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
+
+@Injectable()
+export class CarsService {
+  constructor(
+    @InjectRepository(Car)
+    private carsRepository: Repository<Car>,
+    @InjectRepository(Reservation)
+    private reservationsRepository: Repository<Reservation>,
+  ) {}
+
+  async create(createCarDto: CreateCarDto): Promise<Car> {
+    // Check for duplicate plate number
+    const existing = await this.carsRepository.findOne({
+      where: { plateNumber: createCarDto.plateNumber, deletedAt: IsNull() },
+    });
+
+    if (existing) {
+      throw new ConflictException('Car with this plate number already exists');
+    }
+
+    const car = this.carsRepository.create(createCarDto);
+    return this.carsRepository.save(car);
+  }
+
+  async findAll(params?: {
+    search?: string;
+    status?: CarStatus;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: Car[]; total: number; page: number; pages: number; perPage: number }> {
+    const {
+      search,
+      status,
+      page = 1,
+      limit = 20,
+    } = params || {};
+
+    // Base filters shared by every branch of the search condition
+    const base: any = { deletedAt: IsNull() };
+    if (status) {
+      base.status = status;
+    }
+
+    // Search across make, model AND plate number (OR conditions)
+    const where: any = search
+      ? [
+          { ...base, make: Like(`%${search}%`) },
+          { ...base, model: Like(`%${search}%`) },
+          { ...base, plateNumber: Like(`%${search}%`) },
+        ]
+      : base;
+
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await this.carsRepository.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
+    });
+
+    // `perPage` keeps the response contract consistent across resources.
+    return {
+      data,
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+      perPage: limit,
+    };
+  }
+
+  async findOne(id: string): Promise<Car> {
+    const car = await this.carsRepository.findOne({
+      where: { id, deletedAt: IsNull() },
+    });
+
+    if (!car) {
+      throw new NotFoundException('Car not found');
+    }
+
+    return car;
+  }
+
+  async findByPlateNumber(plateNumber: string): Promise<Car> {
+    const car = await this.carsRepository.findOne({
+      where: { plateNumber, deletedAt: IsNull() },
+    });
+
+    if (!car) {
+      throw new NotFoundException('Car not found');
+    }
+
+    return car;
+  }
+
+  async update(id: string, updateCarDto: UpdateCarDto): Promise<Car> {
+    const car = await this.findOne(id);
+
+    // Check for duplicate plate number if changed
+    if (updateCarDto.plateNumber && updateCarDto.plateNumber !== car.plateNumber) {
+      const existing = await this.carsRepository.findOne({
+        where: { plateNumber: updateCarDto.plateNumber, deletedAt: IsNull() },
+      });
+
+      if (existing) {
+        throw new ConflictException('Car with this plate number already exists');
+      }
+    }
+
+    Object.assign(car, updateCarDto);
+    return this.carsRepository.save(car);
+  }
+
+  async updateStatus(id: string, status: CarStatus): Promise<Car> {
+    const car = await this.findOne(id);
+    car.status = status;
+    return this.carsRepository.save(car);
+  }
+
+  async restore(id: string): Promise<Car> {
+    await this.carsRepository.restore(id);
+    return this.findOne(id);
+  }
+
+ async getAvailableCars(startDate: Date, endDate: Date): Promise<Car[]> {
+    const availableCars = await this.carsRepository.find({
+      where: {
+        status: CarStatus.AVAILABLE,
+        deletedAt: IsNull(),
+      },
+    });
+
+    if (!startDate || !endDate) {
+      return availableCars;
+    }
+
+    const carIds = availableCars.map(car => car.id);
+    if (carIds.length === 0) {
+      return [];
+    }
+
+    // A car is booked if there is an overlapping reservation that is CONFIRMED or EN_COURS
+    const overlappingReservations = await this.reservationsRepository.find({
+      where: {
+        carId: In(carIds),
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
+        deletedAt: IsNull(),
+        startDate: LessThan(endDate),
+        endDate: MoreThan(startDate),
+      },
+    });
+
+    const reservedCarIds = [...new Set(overlappingReservations.map(r => r.carId))];
+
+    return availableCars.filter(car => !reservedCarIds.includes(car.id));
+  }
+  async getStats(): Promise<{
+    total: number;
+    available: number;
+    rented: number;
+    reserved: number;
+    maintenance: number;
+  }> {
+    const total = await this.carsRepository.count({ where: { deletedAt: IsNull() } });
+    const available = await this.carsRepository.count({
+      where: { status: CarStatus.AVAILABLE, deletedAt: IsNull() },
+    });
+    const rented = await this.carsRepository.count({
+      where: { status: CarStatus.RESERVED, deletedAt: IsNull() },
+    });
+    const reserved = await this.carsRepository.count({
+      where: { status: CarStatus.RESERVED, deletedAt: IsNull() },
+    });
+    const maintenance = await this.carsRepository.count({
+      where: { status: CarStatus.MAINTENANCE, deletedAt: IsNull() },
+    });
+
+    return { total, available, rented, reserved, maintenance };
+  }
+
+  async search(query: string): Promise<Car[]> {
+    return this.carsRepository.find({
+      where: [
+        { make: Like(`%${query}%`), deletedAt: IsNull() },
+        { model: Like(`%${query}%`), deletedAt: IsNull() },
+        { plateNumber: Like(`%${query}%`), deletedAt: IsNull() },
+      ],
+      take: 10,
+    });
+  }
+
+  async remove(id: string): Promise<void> {
+    // Ensure the car exists before proceeding
+    await this.findOne(id);
+
+    // Soft-delete and cancel all active reservations for this car
+    await this.reservationsRepository.update(
+      { carId: id, deletedAt: IsNull() },
+      { deletedAt: new Date(), status: ReservationStatus.CANCELLED }
+    );
+
+    // Soft-delete the car
+    await this.carsRepository.softDelete(id);
+  }
 }

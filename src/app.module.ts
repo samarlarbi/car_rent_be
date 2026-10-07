@@ -15,12 +15,14 @@ import { OverdueNotification } from './notifications/entities/overdue-notificati
 import { DeviceToken } from './device-tokens/entities/device-token.entity';
 import { DeviceTokensModule } from './device-tokens/device-tokens.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ReminderLog } from './cron/reminder-log.entity';
 // SUPPRIMÉ : import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
     CronModule,
-    // SUPPRIMÉ : ScheduleModule.forRoot(),
+     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -38,8 +40,8 @@ import { NotificationsModule } from './notifications/notifications.module';
           return {
             type: 'postgres',
             url: connectionString,
-            entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken],
-            synchronize: !isProduction,
+entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken, ReminderLog], // <--- Add ReminderLog here    
+//         synchronize: !isProduction,
             logging: !isProduction,
             ssl: needsSsl ? { rejectUnauthorized: false } : false,
           };
@@ -54,7 +56,7 @@ import { NotificationsModule } from './notifications/notifications.module';
           ssl: configService.get('DB_SSL', false) === 'true'
             ? { rejectUnauthorized: false }
             : false,
-          entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken],
+entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken, ReminderLog],
           synchronize: configService.get('NODE_ENV') === 'development',
           logging: configService.get('NODE_ENV') === 'development',
         };

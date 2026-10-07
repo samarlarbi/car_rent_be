@@ -12,6 +12,7 @@ import { Customer } from '../customers/entities/customer.entity';
 import { CreateReservationDto } from './dto/create-reservation.dto';
 import { UpdateReservationDto } from './dto/update-reservation.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ReminderLog } from '@/cron/reminder-log.entity';
 @Injectable()
 export class ReservationsService {
   private readonly logger = new (require('@nestjs/common').Logger)(ReservationsService.name);
@@ -24,9 +25,11 @@ export class ReservationsService {
     @InjectRepository(Customer)
     private customersRepository: Repository<Customer>,
     private readonly notificationsService: NotificationsService,
+    @InjectRepository(ReminderLog)
+    private readonly reminderLogRepo: Repository<ReminderLog>, // <--- Add this
   ) {}
 
-  async create(createReservationDto: CreateReservationDto, userId: string): Promise<Reservation> {
+ async create(createReservationDto: CreateReservationDto, userId: string): Promise<Reservation> {
     const startDate = new Date(createReservationDto.startDate);
     const endDate = new Date(createReservationDto.endDate);
 
@@ -77,10 +80,8 @@ export class ReservationsService {
 
     const saved = await this.reservationsRepository.save(reservation);
 
-    const now = new Date();
-    if (startDate <= now && car.status === CarStatus.AVAILABLE) {
-      await this.carsRepository.update(car.id, { status: CarStatus.RESERVED });
-    }
+    // Automatically sync the car status based on whether this reservation covers 'now'
+    await this.syncCarStatus(saved.carId);
 
     return this.findOne(saved.id);
   }
@@ -250,67 +251,50 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
       }
     }
 
-    const saved = await this.reservationsRepository.save(reservation);
+   const saved = await this.reservationsRepository.save(reservation);
     
-    if (saved.carId) {
-      await this.syncCarStatus(saved.carId, saved.status);
-    }
-
+    await this.syncCarStatus(saved.carId);
     if (carChanged && oldCarId) {
-      await this.syncCarStatus(oldCarId, ReservationStatus.CANCELLED);
+      await this.syncCarStatus(oldCarId); // Free up the old car if car was switched
     }
 
     return this.findOne(saved.id);
   }
-  private async syncCarStatus(carId: string, status: ReservationStatus): Promise<void> {
+ private async syncCarStatus(carId: string): Promise<void> {
     try {
       const now = new Date();
-      let target: CarStatus | null = null;
 
-      if (status === ReservationStatus.ONGOING) {
-        target = CarStatus.RESERVED;
-      } else if (status === ReservationStatus.CONFIRMED) {
-        const activeNowReservation = await this.reservationsRepository.findOne({
-          where: {
-            carId,
-            status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
-            deletedAt: IsNull(),
-            startDate: LessThanOrEqual(now),
-            endDate: MoreThan(now),
-          },
-        });
-        target = activeNowReservation ? CarStatus.RESERVED : null;
-      } else if (
-        status === ReservationStatus.COMPLETED ||
-        status === ReservationStatus.CANCELLED
-      ) {
-        const stillBusy = await this.reservationsRepository.findOne({
-          where: {
-            carId,
-            status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
-            deletedAt: IsNull(),
-            startDate: LessThanOrEqual(now),
-            endDate: MoreThan(now),
-          },
-        });
-        target = stillBusy ? CarStatus.RESERVED : CarStatus.AVAILABLE;
+      // Check if there is any CONFIRMED or ONGOING reservation currently spanning 'now'
+      const activeReservation = await this.reservationsRepository.findOne({
+        where: {
+          carId,
+          status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
+          deletedAt: IsNull(),
+          startDate: LessThanOrEqual(now),
+          endDate: MoreThan(now), // If endDate is in the past, this returns null!
+        },
+      });
+
+      const car = await this.carsRepository.findOne({ where: { id: carId } });
+      if (!car || car.status === CarStatus.MAINTENANCE) {
+        return;
       }
 
-      if (target) {
-        const car = await this.carsRepository.findOne({ where: { id: carId } });
-        if (car && car.status !== CarStatus.MAINTENANCE) {
-          await this.carsRepository.update(carId, { status: target });
-        }
+      // If an active reservation covers right now -> RESERVED, otherwise -> AVAILABLE
+      const targetStatus = activeReservation ? CarStatus.RESERVED : CarStatus.AVAILABLE;
+
+      if (car.status !== targetStatus) {
+        await this.carsRepository.update(carId, { status: targetStatus });
       }
     } catch (e) {
       this.logger.error('Failed to sync car status', e);
     }
   }
 
-  async remove(id: string): Promise<void> {
+async remove(id: string): Promise<void> {
     const reservation = await this.findOne(id);
     await this.reservationsRepository.softDelete(id);
-    await this.syncCarStatus(reservation.carId, ReservationStatus.CANCELLED);
+    await this.syncCarStatus(reservation.carId);
   }
 
   async confirmReservation(id: string, userId: string): Promise<Reservation> {
@@ -327,53 +311,58 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
    * OPTION A: User says YES -> The car is returned and rental is completed.
    * Car status automatically syncs back to AVAILABLE.
    */
- async completeRental(id: string, actualReturnDate?: Date): Promise<Reservation> {
+async completeRental(id: string, actualReturnDate?: Date): Promise<Reservation> {
     const reservation = await this.findOne(id);
     const now = new Date();
 
+    // Ensure both confirmed and ongoing rentals can be returned early or completed
     if (![ReservationStatus.CONFIRMED, ReservationStatus.ONGOING].includes(reservation.status)) {
       throw new BadRequestException('Only active or ongoing rentals can be completed');
     }
 
     const returnDate = actualReturnDate ? new Date(actualReturnDate) : now;
 
-    // If returned early, optionally truncate the end date to match the actual return date
+    // Truncate or set the actual return date/end date
     reservation.endDate = returnDate > new Date(reservation.endDate) ? reservation.endDate : returnDate;
     reservation.status = ReservationStatus.COMPLETED;
     reservation.actualReturnDate = returnDate;
 
     const saved = await this.reservationsRepository.save(reservation);
-    await this.syncCarStatus(reservation.carId, saved.status);
+    
+    // Call syncCarStatus without parameters so it automatically checks current date overlap
+    await this.syncCarStatus(reservation.carId);
 
     return saved;
   }
-  /**
-   * OPTION B: User says NO -> Rental is NOT completed, they want to extend the end date.
-   * Reservation stays ONGOING, end date is pushed out, and the car remains tightly linked as RESERVED.
-   */
-  async extendRental(
+ async extendRental(
     id: string,
     newEndDate?: Date,
     daysToAdd?: number,
     newStartDate?: Date,
-  ): Promise<Reservation> {
+  ): Promise<Reservation & { numberOfDays?: number }> {
     const reservation = await this.findOne(id);
 
-    if (![ReservationStatus.CONFIRMED, ReservationStatus.ONGOING].includes(reservation.status)) {
-      throw new BadRequestException('Only confirmed or ongoing rentals can be modified/extended');
-    }
+    const parseLocalDate = (dateInput: Date | string) => {
+      if (typeof dateInput === 'string') {
+        const datePart = dateInput.split('T')[0];
+        const [year, month, day] = datePart.split('-').map(Number);
+        return new Date(year, month - 1, day, 0, 0, 0, 0);
+      }
+      const d = new Date(dateInput);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+    };
 
-    let finalStart = newStartDate ? new Date(newStartDate) : new Date(reservation.startDate);
+    let finalStart = newStartDate ? parseLocalDate(newStartDate) : parseLocalDate(reservation.startDate);
     let finalEnd: Date;
 
     if (newEndDate) {
-      finalEnd = new Date(newEndDate);
+      finalEnd = parseLocalDate(newEndDate);
     } else if (daysToAdd) {
-      const currentEnd = new Date(reservation.endDate);
+      const currentEnd = parseLocalDate(reservation.endDate);
       currentEnd.setDate(currentEnd.getDate() + Number(daysToAdd));
       finalEnd = currentEnd;
     } else {
-      finalEnd = new Date(reservation.endDate);
+      finalEnd = parseLocalDate(reservation.endDate);
     }
 
     if (finalEnd <= finalStart) {
@@ -396,52 +385,87 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
       throw new ConflictException('Cannot modify: Car is booked for another reservation during this period');
     }
 
-    reservation.startDate = finalStart;
-    reservation.endDate = finalEnd;
-    if (reservation.status === ReservationStatus.CONFIRMED) {
+    // Ensure we force them into clean UTC midnights before saving 
+    reservation.startDate = new Date(Date.UTC(finalStart.getFullYear(), finalStart.getMonth(), finalStart.getDate()));
+    reservation.endDate = new Date(Date.UTC(finalEnd.getFullYear(), finalEnd.getMonth(), finalEnd.getDate()));
+
+    // If it was completed/cancelled, you can optionally reactivate it or keep its status context. 
+    // If you want it to become ONGOING or CONFIRMED when dates are adjusted into current time:
+    const now = new Date();
+    if (reservation.startDate <= now && reservation.endDate > now) {
       reservation.status = ReservationStatus.ONGOING;
+    } else if (reservation.startDate > now) {
+      reservation.status = ReservationStatus.CONFIRMED;
     }
 
     const saved = await this.reservationsRepository.save(reservation);
-    await this.syncCarStatus(reservation.carId, saved.status);
+    
+    // === CRITICAL: SYNC CAR STATUS IMMEDIATELY AFTER SAVING ===
+await this.syncCarStatus(saved.carId);
+    const diffTime = Math.abs(finalEnd.getTime() - finalStart.getTime());
+    const numberOfDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
-    return saved;
-  }  
+    return {
+      ...saved,
+      numberOfDays,
+    };
+  }
   async cancelReservation(id: string, userId: string): Promise<Reservation> {
     return this.update(id, { status: ReservationStatus.CANCELLED }, userId);
   }  // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
 
-  async handleReturnReminders() {
-    this.logger.log('Vérification des retours prévus aujourd\'hui...');
-    
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+  // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
 
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+ async handleReturnReminders(slot: 'MORNING' | 'EVENING') {
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0]; // '2026-10-07'
 
-    const dueToday = await this.reservationsRepository.find({
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  const dueToday = await this.reservationsRepository.find({
+    where: {
+      status: In([ReservationStatus.ONGOING, ReservationStatus.COMPLETED]),
+      endDate: Between(todayStart, todayEnd),
+      deletedAt: IsNull(),
+    },
+    relations: ['car', 'customer'],
+  });
+
+  for (const res of dueToday) {
+    // Check if this reminder was already sent for this slot today
+    const alreadySent = await this.reminderLogRepo.findOne({
       where: {
-        status: ReservationStatus.ONGOING,
-        endDate: Between(todayStart, todayEnd),
-        deletedAt: IsNull(),
+        reservationId: res.id,
+        slot: slot,
+        reminderDate: todayStr,
       },
-      relations: ['car', 'customer'],
     });
 
-    for (const res of dueToday) {
-      const title = '🚗 Rappel de retour aujourd\'hui';
-      const body = `La voiture ${res.car?.make} ${res.car?.model} (${res.car?.plateNumber}) louée par ${res.customer?.fullName || 'Client'} doit être retournée aujourd'hui.`;
-      
-      this.logger.log(body);
-
-      await this.notificationsService.sendPushNotification(title, body, {
-        reservationId: res.id,
-        type: 'RETURN_REMINDER',
-      });
+    if (alreadySent) {
+      continue; // Skip, already notified for this slot today!
     }
-  }
 
+    const carMake = res.car?.make || 'Voiture';
+    const carModel = res.car?.model || '';
+
+    // Send push notification
+    await this.notificationsService.sendPushNotification(
+      '🚗 Rappel de retour aujourd\'hui',
+      `La location de la voiture ${carMake} ${carModel} arrive à échéance aujourd'hui.`.trim(),
+      { reservationId: res.id, type: 'RETURN_REMINDER' }
+    );
+
+    // Save log so it never duplicates
+    await this.reminderLogRepo.save(
+      this.reminderLogRepo.create({
+        reservationId: res.id,
+        slot: slot,
+        reminderDate: todayStr,
+      }),
+    );
+  }
+}
   async handleOverdueRentals() {
     this.logger.log('Vérification quotidienne des locations en retard...');
     const now = new Date();

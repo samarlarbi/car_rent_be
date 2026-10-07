@@ -5,6 +5,8 @@ import { Reservation, ReservationStatus } from '../reservations/entities/reserva
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OverdueNotification } from '../notifications/entities/overdue-notification.entity';
+import { ReservationsService } from '@/reservations/reservations.service';
+import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
 export class CronService {
@@ -18,15 +20,31 @@ export class CronService {
     @InjectRepository(OverdueNotification)
     private readonly overdueNotificationRepo: Repository<OverdueNotification>,
     private readonly notificationsService: NotificationsService,
+    private readonly reservationsService: ReservationsService,
   ) {}
 
-  /**
-   * Keeps reservation/car statuses in sync with the current time:
-   * - CONFIRMED reservations whose date range includes today -> ONGOING,
-   *   and their car -> RENTED/RESERVED.
-   * - ONGOING reservations whose endDate has passed -> COMPLETED,
-   *   and their car -> AVAILABLE, as soon as the end date/time has passed.
-   */
+  // 👇 Place them here near your other cron triggers:
+
+  // Triggers every day at 8:00 AM
+  // Triggers every day at 8:00 AM
+  @Cron('0 8 * * *')
+  async runMorningReminders() {
+    this.logger.log('Running 8:00 AM return reminders...');
+    await this.reservationsService.handleReturnReminders('MORNING');
+  }
+
+  // Triggers every day at 5:30 PM (or your evening slot)
+  @Cron('35 19 * * *')
+  async runEveningReminders() {
+    this.logger.log('Running evening return reminders...');
+    await this.reservationsService.handleReturnReminders('EVENING');
+  }
+
+  // Keep your sync or overdue methods below if needed (e.g., status updates)
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleHourlySync() {
+    await this.syncCarAndReservationStatuses();
+  }
   async syncCarAndReservationStatuses() {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);

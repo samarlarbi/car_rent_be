@@ -1,5 +1,4 @@
-
-import { User } from '../../auth/entities/user.entity';import {
+import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
@@ -8,22 +7,20 @@ import { User } from '../../auth/entities/user.entity';import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { User } from '../../auth/entities/user.entity';
 
 @Entity('device_tokens')
 export class DeviceToken {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
-  userId: string;
+  @Column({ nullable: true })
+  userId: string | null;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'userId' })
-  user: User;
+  user: User | null;
 
-  // FCM tokens are globally unique per app install; unique constraint also
-  // means re-registering the same device on login is a safe upsert, not a
-  // duplicate row.
   @Column({ unique: true })
   token: string;
 

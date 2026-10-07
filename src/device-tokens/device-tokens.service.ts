@@ -16,7 +16,7 @@ export class DeviceTokensService {
    * a duplicate row, and re-assigns userId in case the device was
    * previously used by a different account (shared/handed-down phone).
    */
-  async register(userId: string, token: string, platform: 'android' | 'ios'): Promise<void> {
+ async register(userId: string | null, token: string, platform: 'android' | 'ios'): Promise<void> {
     const existing = await this.repo.findOne({ where: { token } });
     if (existing) {
       existing.userId = userId;
@@ -24,9 +24,14 @@ export class DeviceTokensService {
       await this.repo.save(existing);
       return;
     }
-    await this.repo.save(this.repo.create({ userId, token, platform }));
+    // If userId is a string like 'default-user-id' or null, omit it if your DB requires a real UUID
+    const newToken = this.repo.create({ 
+      token, 
+      platform,
+      ...(userId && userId !== 'default-user-id' ? { userId } : {})
+    });
+    await this.repo.save(newToken);
   }
-
   async getTokensForUser(userId: string): Promise<string[]> {
     const rows = await this.repo.find({ where: { userId } });
     return rows.map((r) => r.token);

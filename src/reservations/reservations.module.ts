@@ -8,8 +8,9 @@ import { Customer } from '../customers/entities/customer.entity';
 import { CarsModule } from '../cars/cars.module'; 
 import { CustomersModule } from '../customers/customers.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ReminderLog } from '@/cron/reminder-log.entity';
 @Module({
-  imports: [TypeOrmModule.forFeature([Reservation, Car, Customer]),CarsModule,    
+  imports: [TypeOrmModule.forFeature([Reservation, Car, Customer,ReminderLog]),CarsModule,    
     CustomersModule,NotificationsModule],
   controllers: [ReservationsController],
   providers: [ReservationsService],

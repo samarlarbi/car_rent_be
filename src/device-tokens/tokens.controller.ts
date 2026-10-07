@@ -5,8 +5,6 @@ import { DeviceTokensService } from './device-tokens.service';
 
 @ApiTags('device-tokens')
 @Controller('device-tokens')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth()
 export class DeviceTokensController {
   constructor(private readonly deviceTokensService: DeviceTokensService) {}
 
@@ -18,7 +16,8 @@ export class DeviceTokensController {
     @Body('token') token: string,
     @Body('platform') platform: 'android' | 'ios' = 'android',
   ) {
-    await this.deviceTokensService.register(req.user.id, token, platform);
+    const userId = req.user?.id || null;
+    await this.deviceTokensService.register(userId, token, platform);
     return { success: true };
   }
 }

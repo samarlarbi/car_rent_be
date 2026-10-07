@@ -35,6 +35,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { parseExcelBuffer } from '../common/excel/excel.util';
 import { CarsService } from '../cars/cars.service';
 import { CustomersService } from '../customers/customers.service';
+import { ExtendReservationDto } from './dto/extend-reservation.dto';
 
 @ApiTags('reservations')
 @Controller('reservations')
@@ -243,15 +244,21 @@ export class ReservationsController {
     );
   }
 
-  @Post(':id/extend')
-  @ApiOperation({ summary: 'Extend a rental (User declines completion, selects new end date)' })
-  @ApiParam({ name: 'id', type: String })
-  async extendRental(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() extendDto: { newEndDate: string },
-  ) {
-    return this.reservationsService.extendRental(id, new Date(extendDto.newEndDate));
-  }
+// inside reservations.controller.ts
+@Post(':id/extend')
+@ApiOperation({ summary: 'Extend or modify rental dates' })
+@ApiParam({ name: 'id', type: String })
+async extendRental(
+  @Param('id', ParseUUIDPipe) id: string,
+  @Body() extendDto: ExtendReservationDto,
+) {
+  return this.reservationsService.extendRental(
+    id, 
+    extendDto.newEndDate ? new Date(extendDto.newEndDate) : undefined,
+    undefined, // <--- Explicitly pass undefined for daysToAdd
+    extendDto.newStartDate ? new Date(extendDto.newStartDate) : undefined, // <--- Now lands safely in 4th slot
+  );
+}
 
   @Post(':id/cancel')
   @ApiOperation({ summary: 'Cancel a reservation' })
