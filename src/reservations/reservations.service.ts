@@ -353,8 +353,9 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
   async extendRental(id: string, newEndDate: Date): Promise<Reservation> {
     const reservation = await this.findOne(id);
 
-    if (reservation.status !== ReservationStatus.ONGOING) {
-      throw new BadRequestException('Only ongoing rentals can be extended');
+    // Allow extension if the reservation is either CONFIRMED or ONGOING
+    if (![ReservationStatus.CONFIRMED, ReservationStatus.ONGOING].includes(reservation.status)) {
+      throw new BadRequestException('Only confirmed or ongoing rentals can be extended');
     }
 
     const finalEndDate = new Date(newEndDate);
@@ -380,16 +381,19 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
       }
     }
 
-    // Update the end date while keeping status as ONGOING
+    // Update the end date (and automatically transition to ONGOING if it was CONFIRMED)
     reservation.endDate = finalEndDate;
+    if (reservation.status === ReservationStatus.CONFIRMED) {
+      reservation.status = ReservationStatus.ONGOING;
+    }
+
     const saved = await this.reservationsRepository.save(reservation);
     
     // Keeps the car status locked as RESERVED/RENTED
     await this.syncCarStatus(reservation.carId, saved.status);
 
     return saved;
-  }
-  
+  }  
   async cancelReservation(id: string, userId: string): Promise<Reservation> {
     return this.update(id, { status: ReservationStatus.CANCELLED }, userId);
   }  // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
