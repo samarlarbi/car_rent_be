@@ -4,8 +4,8 @@
     { "source": "/(.*)", "destination": "api/index.ts" }
   ],
   "crons": [
-    { "path": "/api/v1/cron/sync-car-status", "schedule": "5 23 * * *" },
+    { "path": "/api/v1/cron/sync-car-status", "schedule": "0 7 * * *" },
     { "path": "/api/v1/cron/remind-morning", "schedule": "0 8 * * *" },
-    { "path": "/api/v1/cron/remind-evening", "schedule": "13 21 * * *" }
+    { "path": "/api/v1/cron/remind-afternoon", "schedule": "0 15 * * *" }
   ]
 }
