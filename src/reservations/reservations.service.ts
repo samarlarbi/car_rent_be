@@ -431,7 +431,7 @@ await this.syncCarStatus(saved.carId);
     },
     relations: ['car', 'customer'],
   });
-
+   this.logger.log(`Reminder ${slot}: ${dueToday.length} reservation(s) due today`);
   for (const res of dueToday) {
     // Check if this reminder was already sent for this slot today
     const alreadySent = await this.reminderLogRepo.findOne({
