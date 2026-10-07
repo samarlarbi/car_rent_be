@@ -13,7 +13,7 @@
     },
     {
       "path": "/api/v1/cron/check-overdue",
-      "schedule": "3 20 * * *"
+      "schedule": "10 19 * * *"
     }
   ]
 }

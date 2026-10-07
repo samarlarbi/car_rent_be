@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, In, LessThan, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -40,13 +40,17 @@ export class CronService {
     });
 
     for (const reservation of toStart) {
-      reservation.status = ReservationStatus.ONGOING;
-      await this.reservationRepo.save(reservation);
+      try {
+        reservation.status = ReservationStatus.ONGOING;
+        await this.reservationRepo.save(reservation);
 
-      if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
-        await this.carRepo.update(reservation.carId, { status: CarStatus.RESERVED });
+        if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
+          await this.carRepo.update(reservation.carId, { status: CarStatus.RESERVED });
+        }
+        startedCount++;
+      } catch (e) {
+        this.logger.error(`Failed to start reservation ${reservation.id}`, e as Error);
       }
-      startedCount++;
     }
 
     const toComplete = await this.reservationRepo.find({
@@ -58,13 +62,17 @@ export class CronService {
     });
 
     for (const reservation of toComplete) {
-      reservation.status = ReservationStatus.COMPLETED;
-      await this.reservationRepo.save(reservation);
+      try {
+        reservation.status = ReservationStatus.COMPLETED;
+        await this.reservationRepo.save(reservation);
 
-      if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
-        await this.carRepo.update(reservation.carId, { status: CarStatus.AVAILABLE });
+        if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
+          await this.carRepo.update(reservation.carId, { status: CarStatus.AVAILABLE });
+        }
+        completedCount++;
+      } catch (e) {
+        this.logger.error(`Failed to complete reservation ${reservation.id}`, e as Error);
       }
-      completedCount++;
     }
 
     this.logger.log(
@@ -80,11 +88,14 @@ export class CronService {
 
   async checkOverdueReturns() {
     const now = new Date();
+    // Only look at rentals that ended in the last 48h, otherwise the whole
+    // history of COMPLETED reservations would trigger notifications.
+    const since = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
     const overdue = await this.reservationRepo.find({
       where: {
         status: In([ReservationStatus.ONGOING, ReservationStatus.COMPLETED]),
-        endDate: LessThan(now),
+        endDate: Between(since, now),
       },
       relations: ['car', 'customer'],
     });
