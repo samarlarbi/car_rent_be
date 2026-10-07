@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThan, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
@@ -6,10 +6,10 @@ import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OverdueNotification } from '../notifications/entities/overdue-notification.entity';
 import { ReservationsService } from '../reservations/reservations.service';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import * as cron from 'node-cron';
 
 @Injectable()
-export class CronService {
+export class CronService implements OnModuleInit {
   private readonly logger = new Logger(CronService.name);
 
   constructor(
@@ -23,28 +23,37 @@ export class CronService {
     private readonly reservationsService: ReservationsService,
   ) {}
 
-  // 👇 Place them here near your other cron triggers:
+  onModuleInit() {
+    // Triggers every day at 12:00 PM (Morning reminders)
+    cron.schedule('0 12 * * *', async () => {
+      this.logger.log('Running Morning return reminders...');
+      try {
+        await this.reservationsService.handleReturnReminders('MORNING');
+      } catch (e) {
+        this.logger.error('Failed to run morning reminders', e as Error);
+      }
+    });
 
-  // Triggers every day at 8:00 AM
-  // Triggers every day at 8:00 AM
-  @Cron('0 12 * * *')
-  async runMorningReminders() {
-    this.logger.log('Running 8:00 AM return reminders...');
-    await this.reservationsService.handleReturnReminders('MORNING');
+    // Triggers every day at 7:33 PM (Evening reminders)
+    cron.schedule('33 19 * * *', async () => {
+      this.logger.log('Running evening return reminders...');
+      try {
+        await this.reservationsService.handleReturnReminders('EVENING');
+      } catch (e) {
+        this.logger.error('Failed to run evening reminders', e as Error);
+      }
+    });
+
+    // Triggers every hour (Hourly sync)
+    cron.schedule('0 * * * *', async () => {
+      try {
+        await this.syncCarAndReservationStatuses();
+      } catch (e) {
+        this.logger.error('Failed to run hourly sync', e as Error);
+      }
+    });
   }
 
-  // Triggers every day at 5:30 PM (or your evening slot)
-  @Cron('33 19 * * *')
-  async runEveningReminders() {
-    this.logger.log('Running evening return reminders...');
-    await this.reservationsService.handleReturnReminders('EVENING');
-  }
-
-  // Keep your sync or overdue methods below if needed (e.g., status updates)
-  @Cron(CronExpression.EVERY_HOUR)
-  async handleHourlySync() {
-    await this.syncCarAndReservationStatuses();
-  }
   async syncCarAndReservationStatuses() {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
@@ -53,8 +62,6 @@ export class CronService {
     let startedCount = 0;
     let completedCount = 0;
 
-    // 1. Reservations that should START today: confirmed, and today falls
-    //    within [startDate, endDate].
     const toStart = await this.reservationRepo.find({
       where: {
         status: ReservationStatus.CONFIRMED,
@@ -74,7 +81,6 @@ export class CronService {
       startedCount++;
     }
 
-    // 2. Reservations that should COMPLETE: ongoing, and endDate has passed
     const toComplete = await this.reservationRepo.find({
       where: {
         status: ReservationStatus.ONGOING,
@@ -104,11 +110,6 @@ export class CronService {
     };
   }
 
-  /**
-   * Pushes a "return due" alert to all active staff for any rental whose
-   * endDate has already passed, once per reservation (deduped via the
-   * OverdueNotification table).
-   */
   async checkOverdueReturns() {
     const now = new Date();
 
