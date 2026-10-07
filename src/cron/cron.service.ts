@@ -24,33 +24,21 @@ export class CronService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    // Triggers every day at 12:00 PM (Morning reminders)
+    // 8:00 AM daily reminders
     cron.schedule('0 12 * * *', async () => {
-      this.logger.log('Running Morning return reminders...');
-      try {
-        await this.reservationsService.handleReturnReminders('MORNING');
-      } catch (e) {
-        this.logger.error('Failed to run morning reminders', e as Error);
-      }
+      this.logger.log('Running 8:00 AM return reminders...');
+      await this.reservationsService.handleReturnReminders('MORNING');
     });
 
-    // Triggers every day at 7:33 PM (Evening reminders)
+    // Evening reminders
     cron.schedule('33 19 * * *', async () => {
       this.logger.log('Running evening return reminders...');
-      try {
-        await this.reservationsService.handleReturnReminders('EVENING');
-      } catch (e) {
-        this.logger.error('Failed to run evening reminders', e as Error);
-      }
+      await this.reservationsService.handleReturnReminders('EVENING');
     });
 
-    // Triggers every hour (Hourly sync)
+    // Hourly sync
     cron.schedule('0 * * * *', async () => {
-      try {
-        await this.syncCarAndReservationStatuses();
-      } catch (e) {
-        this.logger.error('Failed to run hourly sync', e as Error);
-      }
+      await this.syncCarAndReservationStatuses();
     });
   }
 
