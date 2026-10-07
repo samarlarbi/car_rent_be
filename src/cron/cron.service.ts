@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, LessThan, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -22,13 +22,14 @@ export class CronService {
     private readonly reservationsService: ReservationsService,
   ) {}
 
+  // Starts today's confirmed rentals. No auto-completion: staff confirm the
+  // return (completeRental), so ONGOING + endDate passed means really late.
   async syncCarAndReservationStatuses() {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     let startedCount = 0;
-    let completedCount = 0;
 
     const toStart = await this.reservationRepo.find({
       where: {
@@ -53,48 +54,23 @@ export class CronService {
       }
     }
 
-    const toComplete = await this.reservationRepo.find({
-      where: {
-        status: ReservationStatus.ONGOING,
-        endDate: LessThan(now),
-      },
-      relations: ['car'],
-    });
+    this.logger.log(`Cron sync: started ${startedCount} rental(s)`);
+    return { started: startedCount, ranAt: now.toISOString() };
+  }
 
-    for (const reservation of toComplete) {
-      try {
-        reservation.status = ReservationStatus.COMPLETED;
-        await this.reservationRepo.save(reservation);
-
-        if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
-          await this.carRepo.update(reservation.carId, { status: CarStatus.AVAILABLE });
-        }
-        completedCount++;
-      } catch (e) {
-        this.logger.error(`Failed to complete reservation ${reservation.id}`, e as Error);
-      }
-    }
-
-    this.logger.log(
-      `Cron sync: started ${startedCount} rental(s), completed ${completedCount} rental(s)`,
-    );
-
-    return {
-      started: startedCount,
-      completed: completedCount,
-      ranAt: now.toISOString(),
-    };
+  async runReminders(slot: 'MORNING' | 'EVENING') {
+    this.logger.log(`Running ${slot} return reminders...`);
+    await this.reservationsService.handleReturnReminders(slot);
+    return { ok: true, slot, ranAt: new Date().toISOString() };
   }
 
   async checkOverdueReturns() {
     const now = new Date();
-    // Only look at rentals that ended in the last 48h, otherwise the whole
-    // history of COMPLETED reservations would trigger notifications.
     const since = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
     const overdue = await this.reservationRepo.find({
       where: {
-        status: In([ReservationStatus.ONGOING, ReservationStatus.COMPLETED]),
+        status: ReservationStatus.ONGOING,
         endDate: Between(since, now),
       },
       relations: ['car', 'customer'],
@@ -129,7 +105,6 @@ export class CronService {
     }
 
     this.logger.log(`Overdue check: notified ${notifiedCount} reservation(s)`);
-
     return { notified: notifiedCount, ranAt: now.toISOString() };
   }
 }

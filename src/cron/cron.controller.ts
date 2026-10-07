@@ -14,17 +14,29 @@ export class CronController {
     }
   }
 
-  // No @UseGuards(JwtAuthGuard) here: Vercel's cron trigger has no user
-  // session. Instead we check a shared secret sent as a Bearer token.
   @Get('sync-car-status')
-  @ApiOperation({ summary: 'Sync car/reservation statuses based on today (called by Vercel Cron)' })
+  @ApiOperation({ summary: 'Start confirmed rentals for today (Vercel Cron)' })
   async syncCarStatus(@Headers('authorization') authHeader?: string) {
     this.assertCronSecret(authHeader);
     return this.cronService.syncCarAndReservationStatuses();
   }
 
+  @Get('remind-morning')
+  @ApiOperation({ summary: 'Morning return reminders (Vercel Cron)' })
+  async remindMorning(@Headers('authorization') authHeader?: string) {
+    this.assertCronSecret(authHeader);
+    return this.cronService.runReminders('MORNING');
+  }
+
+  @Get('remind-evening')
+  @ApiOperation({ summary: 'Evening return reminders (Vercel Cron)' })
+  async remindEvening(@Headers('authorization') authHeader?: string) {
+    this.assertCronSecret(authHeader);
+    return this.cronService.runReminders('EVENING');
+  }
+
   @Get('check-overdue')
-  @ApiOperation({ summary: 'Push a "return overdue" alert to staff for any ongoing rental past its end date (called by Vercel Cron)' })
+  @ApiOperation({ summary: 'Overdue return alert to staff (Vercel Cron)' })
   async checkOverdue(@Headers('authorization') authHeader?: string) {
     this.assertCronSecret(authHeader);
     return this.cronService.checkOverdueReturns();
