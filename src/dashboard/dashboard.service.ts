@@ -80,10 +80,14 @@ export class DashboardService {
       where: { status: ReservationStatus.CANCELLED, deletedAt: IsNull() },
     });
 
-    const todayPickups = await this.reservationsRepository.count({
+   const todayPickups = await this.reservationsRepository.count({
       where: {
         startDate: Between(today, tomorrow),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
+        status: In([
+          ReservationStatus.COMPLETED,
+          ReservationStatus.CONFIRMED,
+          ReservationStatus.ONGOING,
+        ]),
         deletedAt: IsNull(),
       },
     });
@@ -91,7 +95,11 @@ export class DashboardService {
     const todayReturns = await this.reservationsRepository.count({
       where: {
         endDate: Between(today, tomorrow),
-        status: In([ReservationStatus.ONGOING]),
+        status: In([
+          ReservationStatus.ONGOING,
+          ReservationStatus.CONFIRMED,
+          ReservationStatus.COMPLETED,
+        ]),
         deletedAt: IsNull(),
       },
     });
@@ -99,7 +107,7 @@ export class DashboardService {
     const upcomingPickups = await this.reservationsRepository.count({
       where: {
         startDate: Between(tomorrow, next7Days),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
+        status: In([ReservationStatus.CONFIRMED]),
         deletedAt: IsNull(),
       },
     });
@@ -107,7 +115,11 @@ export class DashboardService {
     const upcomingReturns = await this.reservationsRepository.count({
       where: {
         endDate: Between(tomorrow, next7Days),
-        status: In([ReservationStatus.ONGOING]),
+        status: In([
+          ReservationStatus.ONGOING,
+          ReservationStatus.CONFIRMED,
+          ReservationStatus.COMPLETED,
+        ]),
         deletedAt: IsNull(),
       },
     });
@@ -150,7 +162,7 @@ export class DashboardService {
     return this.reservationsRepository.find({
       where: {
         startDate: Between(today, endDate),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
+        status: In([ReservationStatus.CONFIRMED]),
         deletedAt: IsNull(),
       },
       order: { startDate: 'ASC' },
@@ -167,21 +179,31 @@ export class DashboardService {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const pickups = await this.reservationsRepository.find({
+   const pickups = await this.reservationsRepository.find({
       where: {
         startDate: Between(today, tomorrow),
-        status: In([ReservationStatus.CONFIRMED, ReservationStatus.CONFIRMED]),
+        status: In([
+          ReservationStatus.COMPLETED,
+          ReservationStatus.CONFIRMED,
+          ReservationStatus.ONGOING,
+        ]),
         deletedAt: IsNull(),
       },
+      relations: ['car', 'customer'],
       order: { startDate: 'ASC' },
     });
 
     const returns = await this.reservationsRepository.find({
       where: {
         endDate: Between(today, tomorrow),
-        status: In([ReservationStatus.ONGOING]),
+        status: In([
+          ReservationStatus.ONGOING,
+          ReservationStatus.CONFIRMED,
+          ReservationStatus.COMPLETED,
+        ]),
         deletedAt: IsNull(),
       },
+      relations: ['car', 'customer'],
       order: { endDate: 'ASC' },
     });
 
@@ -201,25 +223,54 @@ export class DashboardService {
         deletedAt: IsNull(),
       },
     });
-    
   }
-  async getTodayEnds(): Promise<any[]> {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
+// Add this method to your DashboardService
+  async getOngoingReservations(): Promise<any[]> {
+    return this.reservationsRepository.find({
+      where: {
+        status: ReservationStatus.ONGOING, // or In([ReservationStatus.ONGOING])
+        deletedAt: IsNull(),
+      },
+      relations: ['car', 'customer'],
+      order: { startDate: 'ASC' },
+      take: 10,
+    });
+  }
 
-  return this.reservationsRepository.find({
-    where: {
-      endDate: Between(today, tomorrow),
-      status: In([
-        ReservationStatus.CONFIRMED,
-        ReservationStatus.ONGOING,
-      ]),
-      deletedAt: IsNull(),
-    },
-    relations: ['car', 'customer'],
-    order: { endDate: 'ASC' },
-  });
-}
+  async getTodayEnds(): Promise<any[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    return this.reservationsRepository.find({
+      where: {
+        endDate: Between(today, tomorrow),
+        status: In([
+          ReservationStatus.CONFIRMED,
+          ReservationStatus.ONGOING,
+          ReservationStatus.COMPLETED,
+        ]),
+        deletedAt: IsNull(),
+      },
+      relations: ['car', 'customer'],
+      order: { endDate: 'ASC' },
+    });
+  }
+  async getTodayPickups(): Promise<any[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    return this.reservationsRepository.find({
+      where: {
+        startDate: Between(today, tomorrow),
+        status: In([ReservationStatus.COMPLETED, ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
+        deletedAt: IsNull(),
+      },
+      relations: ['car', 'customer'],
+      order: { startDate: 'ASC' },
+    });
+  }
 }

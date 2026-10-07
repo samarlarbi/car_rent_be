@@ -34,7 +34,7 @@ export class CronService {
   }
 
   // Triggers every day at 5:30 PM (or your evening slot)
-  @Cron('35 19 * * *')
+  @Cron('30 19 * * *')
   async runEveningReminders() {
     this.logger.log('Running evening return reminders...');
     await this.reservationsService.handleReturnReminders('EVENING');

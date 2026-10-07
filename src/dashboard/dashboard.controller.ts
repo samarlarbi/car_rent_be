@@ -70,7 +70,20 @@ export class DashboardController {
       carName: carNameOf(p.car),
     }));
   }
-
+@Get('ongoing')
+  @ApiOperation({ summary: 'Get ongoing reservations' })
+  async getOngoingReservations() {
+    const reservations = await this.dashboardService.getOngoingReservations();
+    return reservations.map(r => ({
+      id: r.id,
+      reservationNumber: r.reservationNumber,
+      customerName: customerNameOf(r.customer),
+      startDate: r.startDate,
+      endDate: r.endDate,
+      status: r.status,
+      carName: carNameOf(r.car),
+    }));
+  }
   @Get('today-returns')
   @ApiOperation({ summary: 'Get today returns' })
   async getTodayReturns() {
@@ -79,7 +92,9 @@ export class DashboardController {
       id: r.id,
       reservationNumber: r.reservationNumber,
       customerName: customerNameOf(r.customer),
+      startDate: r.startDate,
       endDate: r.endDate,
+      status: r.status,
       carName: carNameOf(r.car),
     }));
   }
