@@ -1,4 +1,11 @@
 {
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "dist/main.js"
+    }
+  ],
   "crons": [
     {
       "path": "/api/v1/cron/sync-car-status",
