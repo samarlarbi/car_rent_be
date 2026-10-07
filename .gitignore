@@ -46,3 +46,4 @@ lerna-debug.log*
 package-lock.json
 yarn.lock
 .vercel
+.env*
