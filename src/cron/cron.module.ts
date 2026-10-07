@@ -6,7 +6,7 @@ import { CronService } from './cron.service';
 import { CronController } from './cron.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OverdueNotification } from '../notifications/entities/overdue-notification.entity';
-import { ReservationsModule } from '@/reservations/reservations.module';
+import { ReservationsModule } from '../reservations/reservations.module';
 
 @Module({
   imports: [

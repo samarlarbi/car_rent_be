@@ -5,7 +5,7 @@ import { Reservation, ReservationStatus } from '../reservations/entities/reserva
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OverdueNotification } from '../notifications/entities/overdue-notification.entity';
-import { ReservationsService } from '@/reservations/reservations.service';
+import { ReservationsService } from '../reservations/reservations.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 @Injectable()
@@ -27,14 +27,14 @@ export class CronService {
 
   // Triggers every day at 8:00 AM
   // Triggers every day at 8:00 AM
-  @Cron('0 8 * * *')
+  @Cron('0 12 * * *')
   async runMorningReminders() {
     this.logger.log('Running 8:00 AM return reminders...');
     await this.reservationsService.handleReturnReminders('MORNING');
   }
 
   // Triggers every day at 5:30 PM (or your evening slot)
-  @Cron('30 19 * * *')
+  @Cron('33 19 * * *')
   async runEveningReminders() {
     this.logger.log('Running evening return reminders...');
     await this.reservationsService.handleReturnReminders('EVENING');
