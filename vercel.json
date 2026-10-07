@@ -9,7 +9,7 @@
   "crons": [
     {
       "path": "/api/v1/cron/sync-car-status",
-      "schedule": "0 * * * *"
+      "schedule": "5 23 * * *"
     },
     {
       "path": "/api/v1/cron/check-overdue",
