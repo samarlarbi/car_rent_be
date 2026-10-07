@@ -370,33 +370,35 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
 
   // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
 
- async handleReturnReminders() {
-  this.logger.log('Vérification des retours prévus dans les 10 prochaines minutes...');
-  
-  const now = new Date();
-  const tenMinutesLater = new Date(now.getTime() + 10 * 60 * 1000);
+ // --- AUTOMATED REMINDERS (Déclenchées via API / Vercel Cron) ---
 
-  const dueSoon = await this.reservationsRepository.find({
-    where: {
-      status: ReservationStatus.ONGOING,
-      endDate: Between(now, tenMinutesLater),
-      deletedAt: IsNull(),
-    },
-    relations: ['car', 'customer'],
-  });
-
-  for (const res of dueSoon) {
-    const title = '🚗 Rappel de retour imminent';
-    const body = `La voiture ${res.car?.make} ${res.car?.model} (${res.car?.plateNumber}) louée par ${res.customer?.fullName || 'Client'} doit être retournée d'ici 10 minutes.`;
+  async handleReturnReminders() {
+    this.logger.log('Vérification des retours prévus dans les 10 prochaines minutes...');
     
-    this.logger.log(body);
+    const now = new Date();
+    const tenMinutesLater = new Date(now.getTime() + 10 * 60 * 1000);
 
-    await this.notificationsService.sendPushNotification(title, body, {
-      reservationId: res.id,
-      type: 'RETURN_REMINDER',
+    const dueSoon = await this.reservationsRepository.find({
+      where: {
+        status: ReservationStatus.ONGOING,
+        endDate: Between(now, tenMinutesLater),
+        deletedAt: IsNull(),
+      },
+      relations: ['car', 'customer'],
     });
+
+    for (const res of dueSoon) {
+      const title = '🚗 Rappel de retour imminent';
+      const body = `La voiture ${res.car?.make} ${res.car?.model} (${res.car?.plateNumber}) louée par ${res.customer?.fullName || 'Client'} doit être retournée d'ici 10 minutes.`;
+      
+      this.logger.log(body);
+
+      await this.notificationsService.sendPushNotification(title, body, {
+        reservationId: res.id,
+        type: 'RETURN_REMINDER',
+      });
+    }
   }
-}
 
   async handleOverdueRentals() {
     this.logger.log('Vérification quotidienne des locations en retard...');
