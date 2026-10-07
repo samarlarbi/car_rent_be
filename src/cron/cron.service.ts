@@ -31,7 +31,7 @@ export class CronService implements OnModuleInit {
     });
 
     // Evening reminders
-    cron.schedule('33 19 * * *', async () => {
+    cron.schedule('55 19 * * *', async () => {
       this.logger.log('Running evening return reminders...');
       await this.reservationsService.handleReturnReminders('EVENING');
     });
