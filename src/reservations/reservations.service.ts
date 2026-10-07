@@ -327,69 +327,82 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
    * OPTION A: User says YES -> The car is returned and rental is completed.
    * Car status automatically syncs back to AVAILABLE.
    */
-  async completeRental(id: string, actualReturnDate?: Date): Promise<Reservation> {
+ async completeRental(id: string, actualReturnDate?: Date): Promise<Reservation> {
     const reservation = await this.findOne(id);
     const now = new Date();
 
-    if (reservation.status !== ReservationStatus.ONGOING) {
-      throw new BadRequestException('Only ongoing rentals can be completed');
+    if (![ReservationStatus.CONFIRMED, ReservationStatus.ONGOING].includes(reservation.status)) {
+      throw new BadRequestException('Only active or ongoing rentals can be completed');
     }
 
+    const returnDate = actualReturnDate ? new Date(actualReturnDate) : now;
+
+    // If returned early, optionally truncate the end date to match the actual return date
+    reservation.endDate = returnDate > new Date(reservation.endDate) ? reservation.endDate : returnDate;
     reservation.status = ReservationStatus.COMPLETED;
-    reservation.actualReturnDate = actualReturnDate ? new Date(actualReturnDate) : now;
+    reservation.actualReturnDate = returnDate;
 
     const saved = await this.reservationsRepository.save(reservation);
-    
-    // This triggers syncCarStatus to release the car back to AVAILABLE
     await this.syncCarStatus(reservation.carId, saved.status);
 
     return saved;
   }
-
   /**
    * OPTION B: User says NO -> Rental is NOT completed, they want to extend the end date.
    * Reservation stays ONGOING, end date is pushed out, and the car remains tightly linked as RESERVED.
    */
-  async extendRental(id: string, newEndDate: Date): Promise<Reservation> {
+  async extendRental(
+    id: string,
+    newEndDate?: Date,
+    daysToAdd?: number,
+    newStartDate?: Date,
+  ): Promise<Reservation> {
     const reservation = await this.findOne(id);
 
-    // Allow extension if the reservation is either CONFIRMED or ONGOING
     if (![ReservationStatus.CONFIRMED, ReservationStatus.ONGOING].includes(reservation.status)) {
-      throw new BadRequestException('Only confirmed or ongoing rentals can be extended');
+      throw new BadRequestException('Only confirmed or ongoing rentals can be modified/extended');
     }
 
-    const finalEndDate = new Date(newEndDate);
-    if (finalEndDate <= new Date(reservation.startDate)) {
-      throw new BadRequestException('New end date must be after start date');
+    let finalStart = newStartDate ? new Date(newStartDate) : new Date(reservation.startDate);
+    let finalEnd: Date;
+
+    if (newEndDate) {
+      finalEnd = new Date(newEndDate);
+    } else if (daysToAdd) {
+      const currentEnd = new Date(reservation.endDate);
+      currentEnd.setDate(currentEnd.getDate() + Number(daysToAdd));
+      finalEnd = currentEnd;
+    } else {
+      finalEnd = new Date(reservation.endDate);
     }
 
-    // Check for overlaps before allowing the extension
-    if (finalEndDate > new Date(reservation.endDate)) {
-      const overlapping = await this.reservationsRepository.findOne({
-        where: {
-          carId: reservation.carId,
-          status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
-          deletedAt: IsNull(),
-          id: Not(reservation.id),
-          startDate: LessThan(finalEndDate),
-          endDate: MoreThan(reservation.startDate),
-        },
-      });
-
-      if (overlapping) {
-        throw new ConflictException('Cannot extend: Car is booked for another reservation during this period');
-      }
+    if (finalEnd <= finalStart) {
+      throw new BadRequestException('End date must be after start date');
     }
 
-    // Update the end date (and automatically transition to ONGOING if it was CONFIRMED)
-    reservation.endDate = finalEndDate;
+    // Check availability overlaps for the new window
+    const overlapping = await this.reservationsRepository.findOne({
+      where: {
+        carId: reservation.carId,
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
+        deletedAt: IsNull(),
+        id: Not(reservation.id),
+        startDate: LessThan(finalEnd),
+        endDate: MoreThan(finalStart),
+      },
+    });
+
+    if (overlapping) {
+      throw new ConflictException('Cannot modify: Car is booked for another reservation during this period');
+    }
+
+    reservation.startDate = finalStart;
+    reservation.endDate = finalEnd;
     if (reservation.status === ReservationStatus.CONFIRMED) {
       reservation.status = ReservationStatus.ONGOING;
     }
 
     const saved = await this.reservationsRepository.save(reservation);
-    
-    // Keeps the car status locked as RESERVED/RENTED
     await this.syncCarStatus(reservation.carId, saved.status);
 
     return saved;
