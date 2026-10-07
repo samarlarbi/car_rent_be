@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThan, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
@@ -6,10 +6,9 @@ import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OverdueNotification } from '../notifications/entities/overdue-notification.entity';
 import { ReservationsService } from '../reservations/reservations.service';
-import * as cron from 'node-cron';
 
 @Injectable()
-export class CronService implements OnModuleInit {
+export class CronService {
   private readonly logger = new Logger(CronService.name);
 
   constructor(
@@ -22,25 +21,6 @@ export class CronService implements OnModuleInit {
     private readonly notificationsService: NotificationsService,
     private readonly reservationsService: ReservationsService,
   ) {}
-
-  onModuleInit() {
-    // 8:00 AM daily reminders
-    cron.schedule('0 12 * * *', async () => {
-      this.logger.log('Running 8:00 AM return reminders...');
-      await this.reservationsService.handleReturnReminders('MORNING');
-    });
-
-    // Evening reminders
-    cron.schedule('3 20 * * *', async () => {
-      this.logger.log('Running evening return reminders...');
-      await this.reservationsService.handleReturnReminders('EVENING');
-    });
-
-    // Hourly sync
-    cron.schedule('0 * * * *', async () => {
-      await this.syncCarAndReservationStatuses();
-    });
-  }
 
   async syncCarAndReservationStatuses() {
     const now = new Date();
