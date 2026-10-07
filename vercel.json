@@ -8,8 +8,12 @@
   ],
   "crons": [
     {
-      "path": "/api/v1/cron/sync-car-status",
-      "schedule": "0 0 * * *"
+      "path": "/api/v1/cron/run-evening-reminders",
+      "schedule": "3 20 * * *"
+    },
+    {
+      "path": "/api/v1/cron/sync-status",
+      "schedule": "0 * * * *"
     }
   ]
 }
