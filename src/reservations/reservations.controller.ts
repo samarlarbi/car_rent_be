@@ -230,11 +230,27 @@ export class ReservationsController {
     return this.reservationsService.startRental(id);
   }
 
-  @Post(':id/complete')
-  @ApiOperation({ summary: 'Complete a rental (check-in)' })
+@Post(':id/complete')
+  @ApiOperation({ summary: 'Complete a rental (User confirms vehicle return)' })
   @ApiParam({ name: 'id', type: String })
-  async completeRental(@Param('id', ParseUUIDPipe) id: string, @Req() req) {
-return this.reservationsService.completeRental(id);
+  async completeRental(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('actualReturnDate') actualReturnDate?: string,
+  ) {
+    return this.reservationsService.completeRental(
+      id, 
+      actualReturnDate ? new Date(actualReturnDate) : undefined
+    );
+  }
+
+  @Post(':id/extend')
+  @ApiOperation({ summary: 'Extend a rental (User declines completion, selects new end date)' })
+  @ApiParam({ name: 'id', type: String })
+  async extendRental(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() extendDto: { newEndDate: string },
+  ) {
+    return this.reservationsService.extendRental(id, new Date(extendDto.newEndDate));
   }
 
   @Post(':id/cancel')
