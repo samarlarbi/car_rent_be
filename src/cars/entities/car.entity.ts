@@ -10,6 +10,7 @@ import {
 export enum CarStatus {
   AVAILABLE = 'available',
   RESERVED = 'reserved',
+  IN_CIRCULATION = 'en_circulation',
   MAINTENANCE = 'maintenance',
 }
 

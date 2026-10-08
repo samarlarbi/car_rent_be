@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, IsNull, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -24,40 +24,43 @@ export class CronService {
 
   // Starts today's confirmed rentals. No auto-completion: staff confirm the
   // return (completeRental), so ONGOING + endDate passed means really late.
-  async syncCarAndReservationStatuses() {
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
-    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+ async syncCarAndReservationStatuses() {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-    let startedCount = 0;
+  let startedCount = 0;
 
-    const toStart = await this.reservationRepo.find({
-      where: {
-        status: ReservationStatus.CONFIRMED,
-        startDate: LessThanOrEqual(endOfToday),
-        endDate: MoreThanOrEqual(startOfToday),
-      },
-      relations: ['car'],
-    });
+  const toStart = await this.reservationRepo.find({
+    where: {
+      status: ReservationStatus.CONFIRMED,
+      startDate: LessThanOrEqual(endOfToday),
+      endDate: MoreThanOrEqual(startOfToday),
+    },
+  });
 
-    for (const reservation of toStart) {
-      try {
-        reservation.status = ReservationStatus.ONGOING;
-        await this.reservationRepo.save(reservation);
-
-        if (reservation.car && reservation.car.status !== CarStatus.MAINTENANCE) {
-          await this.carRepo.update(reservation.carId, { status: CarStatus.RESERVED });
-        }
-        startedCount++;
-      } catch (e) {
-        this.logger.error(`Failed to start reservation ${reservation.id}`, e as Error);
-      }
+  for (const reservation of toStart) {
+    try {
+      reservation.status = ReservationStatus.ONGOING;
+      await this.reservationRepo.save(reservation);
+      startedCount++;
+    } catch (e) {
+      this.logger.error(`Failed to start reservation ${reservation.id}`, e as Error);
     }
-
-    this.logger.log(`Cron sync: started ${startedCount} rental(s)`);
-    return { started: startedCount, ranAt: now.toISOString() };
   }
 
+  // Recompute every car's status for today (reserved / en_circulation / available)
+  const cars = await this.carRepo.find({
+    where: { deletedAt: IsNull() },
+    select: { id: true },
+  });
+  for (const car of cars) {
+    await this.reservationsService.syncCarStatus(car.id);
+  }
+
+  this.logger.log(`Cron sync: started ${startedCount} rental(s), synced ${cars.length} car(s)`);
+  return { started: startedCount, cars: cars.length, ranAt: now.toISOString() };
+}
   async runReminders(slot: 'MORNING' | 'EVENING') {
     this.logger.log(`Running ${slot} return reminders...`);
     await this.reservationsService.handleReturnReminders(slot);

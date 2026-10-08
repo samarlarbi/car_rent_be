@@ -260,37 +260,46 @@ async update(id: string, updateReservationDto: UpdateReservationDto, userId?: st
 
     return this.findOne(saved.id);
   }
- private async syncCarStatus(carId: string): Promise<void> {
-    try {
-      const now = new Date();
+// 'YYYY-MM-DD' of a date, so days can be compared as plain strings
+private dayKey(d: Date | string): string {
+  return new Date(d).toISOString().split('T')[0];
+}
 
-      // Check if there is any CONFIRMED or ONGOING reservation currently spanning 'now'
-      const activeReservation = await this.reservationsRepository.findOne({
-        where: {
-          carId,
-          status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
-          deletedAt: IsNull(),
-          startDate: LessThanOrEqual(now),
-          endDate: MoreThan(now), // If endDate is in the past, this returns null!
-        },
-      });
+async syncCarStatus(carId: string): Promise<void> {
+  try {
+    const car = await this.carsRepository.findOne({ where: { id: carId } });
+    if (!car || car.status === CarStatus.MAINTENANCE) return;
 
-      const car = await this.carsRepository.findOne({ where: { id: carId } });
-      if (!car || car.status === CarStatus.MAINTENANCE) {
-        return;
+    const reservations = await this.reservationsRepository.find({
+      where: {
+        carId,
+        status: In([ReservationStatus.CONFIRMED, ReservationStatus.ONGOING]),
+        deletedAt: IsNull(),
+      },
+    });
+
+    const today = this.dayKey(new Date());
+    let target: CarStatus = CarStatus.AVAILABLE;
+
+    for (const r of reservations) {
+      const first = this.dayKey(r.startDate);
+      const last = this.dayKey(r.endDate);
+      if (today < first || today > last) continue;
+
+      if (today === first || today === last) {
+        if (target === CarStatus.AVAILABLE) target = CarStatus.RESERVED;
+      } else {
+        target = CarStatus.IN_CIRCULATION;
       }
-
-      // If an active reservation covers right now -> RESERVED, otherwise -> AVAILABLE
-      const targetStatus = activeReservation ? CarStatus.RESERVED : CarStatus.AVAILABLE;
-
-      if (car.status !== targetStatus) {
-        await this.carsRepository.update(carId, { status: targetStatus });
-      }
-    } catch (e) {
-      this.logger.error('Failed to sync car status', e);
     }
-  }
 
+    if (car.status !== target) {
+      await this.carsRepository.update(carId, { status: target });
+    }
+  } catch (e) {
+    this.logger.error('Failed to sync car status', e);
+  }
+}
 async remove(id: string): Promise<void> {
     const reservation = await this.findOne(id);
     await this.reservationsRepository.softDelete(id);
