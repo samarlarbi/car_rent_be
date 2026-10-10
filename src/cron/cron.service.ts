@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, IsNull, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
+import { Between, In, IsNull, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import { Reservation, ReservationStatus } from '../reservations/entities/reservation.entity';
 import { Car, CarStatus } from '../cars/entities/car.entity';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -63,6 +63,57 @@ export class CronService {
     this.logger.log(`Running ${slot} return reminders...`);
     await this.reservationsService.handleReturnReminders(slot);
     return { ok: true, slot, ranAt: new Date().toISOString() };
+  }
+
+  /**
+   * Push to all staff listing the rentals whose end date is today (Tunis time).
+   */
+  async notifyEndingToday() {
+    // "Today" in Tunis (UTC+1, no DST). Vercel runs in UTC, so compute it explicitly.
+    const TUNIS_OFFSET_MS = 60 * 60 * 1000;
+    const nowTunis = new Date(Date.now() + TUNIS_OFFSET_MS);
+    const startOfToday = new Date(
+      Date.UTC(nowTunis.getUTCFullYear(), nowTunis.getUTCMonth(), nowTunis.getUTCDate()) -
+        TUNIS_OFFSET_MS,
+    );
+    const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+    const endingToday = await this.reservationRepo.find({
+      where: {
+        endDate: Between(startOfToday, endOfToday),
+        status: In([ReservationStatus.ONGOING, ReservationStatus.CONFIRMED]),
+        deletedAt: IsNull(),
+      },
+      relations: ['car', 'customer'],
+      order: { endDate: 'ASC' },
+    });
+
+    if (endingToday.length === 0) {
+      this.logger.log('Ending-today check: nothing to notify');
+      return { notified: 0, ranAt: new Date().toISOString() };
+    }
+
+    const lines = endingToday.map((r) => {
+      const car =
+        [r.car?.marque, r.car?.codeEngin].filter(Boolean).join(' ') ||
+        r.car?.matricule ||
+        'Véhicule';
+      const customer = r.customer?.fullName ? ` (${r.customer.fullName})` : '';
+      return `${car}${customer}`;
+    });
+
+    const title =
+      endingToday.length === 1
+        ? 'Une location se termine aujourd’hui'
+        : `${endingToday.length} locations se terminent aujourd’hui`;
+
+    await this.notificationsService.sendToAllActiveStaff(title, lines.join(' • '), {
+      type: 'ending_today',
+      count: String(endingToday.length),
+    });
+
+    this.logger.log(`Ending-today check: notified ${endingToday.length} reservation(s)`);
+    return { notified: endingToday.length, ranAt: new Date().toISOString() };
   }
 
   async checkOverdueReturns() {

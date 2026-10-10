@@ -35,6 +35,13 @@ export class CronController {
     return this.cronService.runReminders('EVENING');
   }
 
+  @Get('notify-ending-today')
+  @ApiOperation({ summary: 'Notify staff of rentals ending today (Vercel Cron)' })
+  async notifyEndingToday(@Headers('authorization') authHeader?: string) {
+    this.assertCronSecret(authHeader);
+    return this.cronService.notifyEndingToday();
+  }
+
   @Get('check-overdue')
   @ApiOperation({ summary: 'Overdue return alert to staff (Vercel Cron)' })
   async checkOverdue(@Headers('authorization') authHeader?: string) {
