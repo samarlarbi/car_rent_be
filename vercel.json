@@ -6,6 +6,6 @@
   "crons": [
     { "path": "/api/v1/cron/sync-car-status", "schedule": "0 7 * * *" },
     { "path": "/api/v1/cron/remind-morning", "schedule": "0 8 * * *" },
-    { "path": "/api/v1/cron/remind-afternoon", "schedule": "0 15 * * *" }
+    { "path": "/api/v1/cron/remind-evening", "schedule": "0 15 * * *" }
   ]
 }
