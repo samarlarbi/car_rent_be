@@ -1,4 +1,4 @@
-import { Reservation } from '@/reservations/entities/reservation.entity';
+import { Reservation } from '../../reservations/entities/reservation.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
