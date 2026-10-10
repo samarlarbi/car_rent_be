@@ -66,7 +66,8 @@ export class CronService {
   }
 
   /**
-   * Push to all staff listing the rentals whose end date is today (Tunis time).
+   * Sends ONE push per reservation whose end date is today (Tunis time).
+   * Each push carries its own reservationId so tapping it opens that page.
    */
   async notifyEndingToday() {
     // "Today" in Tunis (UTC+1, no DST). Vercel runs in UTC, so compute it explicitly.
@@ -93,27 +94,28 @@ export class CronService {
       return { notified: 0, ranAt: new Date().toISOString() };
     }
 
-    const lines = endingToday.map((r) => {
+    let sent = 0;
+    for (const r of endingToday) {
       const car =
         [r.car?.marque, r.car?.codeEngin].filter(Boolean).join(' ') ||
         r.car?.matricule ||
         'Véhicule';
       const customer = r.customer?.fullName ? ` (${r.customer.fullName})` : '';
-      return `${car}${customer}`;
-    });
 
-    const title =
-      endingToday.length === 1
-        ? 'Une location se termine aujourd’hui'
-        : `${endingToday.length} locations se terminent aujourd’hui`;
+      try {
+        await this.notificationsService.sendToAllActiveStaff(
+          'Une location se termine aujourd’hui',
+          `${car}${customer}`,
+          { type: 'ending_today', reservationId: r.id },
+        );
+        sent++;
+      } catch (e) {
+        this.logger.error(`Failed to send ending-today push for ${r.id}`, e as Error);
+      }
+    }
 
-    await this.notificationsService.sendToAllActiveStaff(title, lines.join(' • '), {
-      type: 'ending_today',
-      count: String(endingToday.length),
-    });
-
-    this.logger.log(`Ending-today check: notified ${endingToday.length} reservation(s)`);
-    return { notified: endingToday.length, ranAt: new Date().toISOString() };
+    this.logger.log(`Ending-today check: notified ${sent} reservation(s)`);
+    return { notified: sent, ranAt: new Date().toISOString() };
   }
 
   async checkOverdueReturns() {

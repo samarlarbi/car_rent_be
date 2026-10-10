@@ -33,24 +33,35 @@ export class NotificationsService {
 
   async sendPushNotification(title: string, body: string, data?: Record<string, string>) {
     try {
-      // Récupération de tous les tokens enregistrés (sans deletedAt si non géré par l'entité)
+      // Récupération de tous les tokens enregistrés
       const tokensRecords = await this.deviceTokenRepository.find();
-const tokens = [...new Set(tokensRecords.map((t) => t.token))];
+      const tokens = [...new Set(tokensRecords.map((t) => t.token))];
       if (tokens.length === 0) {
         this.logger.warn('Aucun token FCM trouvé pour envoyer la notification.');
         return;
       }
 
-    const message: MulticastMessage = {
+      const message: MulticastMessage = {
         tokens,
-        // ❌ Remove the top-level 'notification' block so Android doesn't auto-show it
+        // Bloc "notification": Android affiche la notification tout seul quand l'app
+        // est en arrière-plan ou fermée. Au clic, les données (reservationId) arrivent
+        // dans onMessageOpenedApp / getInitialMessage côté Flutter.
+        // Quand l'app est ouverte, onMessage s'en occupe (pas de doublon).
+        notification: {
+          title,
+          body,
+        },
         data: {
           ...(data || {}),
-          title: title, // Pass title inside data
-          body: body,   // Pass body inside data
+          title,
+          body,
         },
         android: {
           priority: 'high',
+          notification: {
+            // Doit correspondre au canal créé dans NotificationService (Flutter)
+            channelId: 'remote_alerts',
+          },
         },
         apns: {
           payload: {
@@ -63,9 +74,11 @@ const tokens = [...new Set(tokensRecords.map((t) => t.token))];
       };
 
       const response = await getMessaging().sendEachForMulticast(message);
-      this.logger.log(`Notifications envoyées : ${response.successCount} réussies, ${response.failureCount} échecs.`);
+      this.logger.log(
+        `Notifications envoyées : ${response.successCount} réussies, ${response.failureCount} échecs.`,
+      );
     } catch (error) {
-      this.logger.error('Erreur lors de l\'envoi de la notification FCM', error);
+      this.logger.error("Erreur lors de l'envoi de la notification FCM", error);
     }
   }
 }
