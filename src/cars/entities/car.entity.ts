@@ -1,3 +1,4 @@
+import { Reservation } from '@/reservations/entities/reservation.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -5,29 +6,79 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   DeleteDateColumn,
+  OneToMany,
+  ValueTransformer,
 } from 'typeorm';
 
 export enum CarStatus {
-  AVAILABLE = 'available',
-  RESERVED = 'reserved',
+  AVAILABLE = 'disponible',
+  RESERVED = 'réservé',
   IN_CIRCULATION = 'en_circulation',
-  MAINTENANCE = 'maintenance',
+  MAINTENANCE = 'en_maintenance',
 }
+
+// Transformateur pour convertir n'importe quelle chaîne/date reçue en un objet Date valide pour PostgreSQL
+const dateTransformer: ValueTransformer = {
+  to(value: any): any {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  },
+  from(value: any): any {
+    return value;
+  },
+};
 
 @Entity('cars')
 export class Car {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Same definitions as the original entity, so the existing columns and data are untouched.
   @Column({ nullable: true })
-  make: string;
+  codeEngin: string;
 
   @Column({ nullable: true })
-  model: string;
+  marque: string;
 
   @Column({ unique: true, nullable: true })
-  plateNumber: string;
+  matricule: string;
+
+  @Column({ nullable: true })
+  adresse: string;
+
+  @Column({ nullable: true })
+  numeroChassis: string;
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  premiereDateCirculation: Date; // Changé de string à Date
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  dateAssurance: Date; // Changé de string à Date
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  finAssurance: Date; // Changé de string à Date
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  dateTaxe: Date; // Changé de string à Date
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  finTaxe: Date; // Changé de string à Date
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  dateDebutVisiteTechnique: Date; // Changé de string à Date
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  dateFinVisiteTechnique: Date; // Changé de string à Date
+
+  @Column({ nullable: true })
+  refFiltreAir: string;
+
+  @Column({ nullable: true })
+  refFiltreHuile: string;
+
+  @Column({ type: 'date', nullable: true, transformer: dateTransformer })
+  validiteCarteCirculation: Date; // Changé de string à Date
 
   @Column({
     type: 'enum',
@@ -36,9 +87,9 @@ export class Car {
   })
   status: CarStatus;
 
-  // --- technical columns (kept on purpose) ---
-  // deletedAt: the code filters `deletedAt: IsNull()` and uses soft delete / restore.
-  // createdAt / updatedAt: harmless bookkeeping, often used for ordering.
+  @OneToMany(() => Reservation, (reservation) => reservation.car)
+  reservations: Reservation[];
+
   @CreateDateColumn()
   createdAt: Date;
 

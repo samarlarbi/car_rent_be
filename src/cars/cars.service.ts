@@ -20,9 +20,8 @@ export class CarsService {
   ) {}
 
   async create(createCarDto: CreateCarDto): Promise<Car> {
-    // Check for duplicate plate number
     const existing = await this.carsRepository.findOne({
-      where: { plateNumber: createCarDto.plateNumber, deletedAt: IsNull() },
+      where: { matricule: createCarDto.matricule, deletedAt: IsNull() },
     });
 
     if (existing) {
@@ -46,18 +45,18 @@ export class CarsService {
       limit = 20,
     } = params || {};
 
-    // Base filters shared by every branch of the search condition
     const base: any = { deletedAt: IsNull() };
     if (status) {
       base.status = status;
     }
 
-    // Search across make, model AND plate number (OR conditions)
     const where: any = search
       ? [
-          { ...base, make: Like(`%${search}%`) },
-          { ...base, model: Like(`%${search}%`) },
-          { ...base, plateNumber: Like(`%${search}%`) },
+          { ...base, marque: Like(`%${search}%`) },
+          { ...base, matricule: Like(`%${search}%`) },
+          { ...base, numeroChassis: Like(`%${search}%`) },
+          { ...base, codeEngin: Like(`%${search}%`) },
+          { ...base, adresse: Like(`%${search}%`) },
         ]
       : base;
 
@@ -70,7 +69,6 @@ export class CarsService {
       take: limit,
     });
 
-    // `perPage` keeps the response contract consistent across resources.
     return {
       data,
       total,
@@ -92,9 +90,9 @@ export class CarsService {
     return car;
   }
 
-  async findByPlateNumber(plateNumber: string): Promise<Car> {
+  async findByPlateNumber(matricule: string): Promise<Car> {
     const car = await this.carsRepository.findOne({
-      where: { plateNumber, deletedAt: IsNull() },
+      where: { matricule, deletedAt: IsNull() },
     });
 
     if (!car) {
@@ -107,10 +105,9 @@ export class CarsService {
   async update(id: string, updateCarDto: UpdateCarDto): Promise<Car> {
     const car = await this.findOne(id);
 
-    // Check for duplicate plate number if changed
-    if (updateCarDto.plateNumber && updateCarDto.plateNumber !== car.plateNumber) {
+    if (updateCarDto.matricule && updateCarDto.matricule !== car.matricule) {
       const existing = await this.carsRepository.findOne({
-        where: { plateNumber: updateCarDto.plateNumber, deletedAt: IsNull() },
+        where: { matricule: updateCarDto.matricule, deletedAt: IsNull() },
       });
 
       if (existing) {
@@ -133,7 +130,7 @@ export class CarsService {
     return this.findOne(id);
   }
 
- async getAvailableCars(startDate: Date, endDate: Date): Promise<Car[]> {
+  async getAvailableCars(startDate: Date, endDate: Date): Promise<Car[]> {
     const availableCars = await this.carsRepository.find({
       where: {
         status: CarStatus.AVAILABLE,
@@ -150,7 +147,6 @@ export class CarsService {
       return [];
     }
 
-    // A car is booked if there is an overlapping reservation that is CONFIRMED or EN_COURS
     const overlappingReservations = await this.reservationsRepository.find({
       where: {
         carId: In(carIds),
@@ -165,6 +161,7 @@ export class CarsService {
 
     return availableCars.filter(car => !reservedCarIds.includes(car.id));
   }
+
   async getStats(): Promise<{
     total: number;
     available: number;
@@ -192,25 +189,23 @@ export class CarsService {
   async search(query: string): Promise<Car[]> {
     return this.carsRepository.find({
       where: [
-        { make: Like(`%${query}%`), deletedAt: IsNull() },
-        { model: Like(`%${query}%`), deletedAt: IsNull() },
-        { plateNumber: Like(`%${query}%`), deletedAt: IsNull() },
+        { marque: Like(`%${query}%`), deletedAt: IsNull() },
+        { matricule: Like(`%${query}%`), deletedAt: IsNull() },
+        { numeroChassis: Like(`%${query}%`), deletedAt: IsNull() },
+        { codeEngin: Like(`%${query}%`), deletedAt: IsNull() },
       ],
       take: 10,
     });
   }
 
   async remove(id: string): Promise<void> {
-    // Ensure the car exists before proceeding
     await this.findOne(id);
 
-    // Soft-delete and cancel all active reservations for this car
     await this.reservationsRepository.update(
       { carId: id, deletedAt: IsNull() },
       { deletedAt: new Date(), status: ReservationStatus.CANCELLED }
     );
 
-    // Soft-delete the car
     await this.carsRepository.softDelete(id);
   }
 }

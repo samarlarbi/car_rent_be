@@ -25,7 +25,7 @@ import { ReminderLog } from './cron/reminder-log.entity';
       isGlobal: true,
       envFilePath: '.env',
     }),
-    TypeOrmModule.forRootAsync({
+   TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const isProduction = configService.get('NODE_ENV') === 'production';
@@ -41,6 +41,7 @@ import { ReminderLog } from './cron/reminder-log.entity';
             entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken, ReminderLog],
             logging: !isProduction,
             ssl: needsSsl ? { rejectUnauthorized: false } : false,
+            synchronize: true, // ⚠️ Force la mise à jour automatique du schéma avec vos nouvelles entités
           };
         }
         return {
@@ -54,7 +55,7 @@ import { ReminderLog } from './cron/reminder-log.entity';
             ? { rejectUnauthorized: false }
             : false,
           entities: [User, Car, Reservation, Customer, OverdueNotification, DeviceToken, ReminderLog],
-          synchronize: configService.get('NODE_ENV') === 'development',
+          synchronize: true, // ⚠️ Forcé à true pour appliquer les colonnes Excel
           logging: configService.get('NODE_ENV') === 'development',
         };
       },

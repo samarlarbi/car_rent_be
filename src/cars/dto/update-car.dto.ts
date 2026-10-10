@@ -8,5 +8,7 @@ export class UpdateCarDto extends PartialType(CreateCarDto) {
   @ApiPropertyOptional({ enum: CarStatus, example: CarStatus.AVAILABLE })
   @IsEnum(CarStatus)
   @IsOptional()
+
+  
   status?: CarStatus;
 }

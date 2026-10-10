@@ -36,6 +36,7 @@ import { CarStatus } from './entities/car.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 import { buildExcelBuffer, parseExcelBuffer } from '../common/excel/excel.util';
+
 @ApiTags('cars')
 @Controller('cars')
 @UseGuards(JwtAuthGuard)
@@ -77,9 +78,21 @@ export class CarsController {
     const { data } = await this.carsService.findAll({ page: 1, limit: 1_000_000 });
 
     const buffer = await buildExcelBuffer(data as any, [
-      { header: 'Marque', key: 'make' },
-      { header: 'Modèle', key: 'model' },
-      { header: 'Numéro de Plaque', key: 'plateNumber' },
+      { header: 'Code Engin', key: 'codeEngin' },
+      { header: 'Marque', key: 'marque' },
+      { header: 'Matricule', key: 'matricule' },
+      { header: 'Adresse', key: 'adresse' },
+      { header: 'N° Chassis', key: 'numeroChassis' },
+      { header: '1iére Date Circulation', key: 'premiereDateCirculation' },
+      { header: 'Date Assurance', key: 'dateAssurance' },
+      { header: 'Fin Assurance', key: 'finAssurance' },
+      { header: 'Date Taxe', key: 'dateTaxe' },
+      { header: 'Fin Taxe', key: 'finTaxe' },
+      { header: 'Date debut visite technique', key: 'dateDebutVisiteTechnique' },
+      { header: 'Date fin visite technique', key: 'dateFinVisiteTechnique' },
+      { header: 'Ref filtre air', key: 'refFiltreAir' },
+      { header: 'Ref filtre Huile', key: 'refFiltreHuile' },
+      { header: 'Validité carte circulation', key: 'validiteCarteCirculation' },
       { header: 'Statut', key: 'status' },
     ]);
 
@@ -102,13 +115,25 @@ export class CarsController {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       try {
-        const plate = String(row['Numéro de Plaque'] ?? '').trim();
-        if (!plate) throw new Error('Numéro de plaque manquant');
+        const matricule = String(row['Matricule'] ?? row['plateNumber'] ?? '').trim();
+        if (!matricule) throw new Error('Matricule manquant');
 
         await this.carsService.create({
-          make: row['Marque'] ? String(row['Marque']).trim() : undefined,
-          model: row['Modèle'] ? String(row['Modèle']).trim() : undefined,
-          plateNumber: plate,
+          codeEngin: row['Code Engin'] ? String(row['Code Engin']).trim() : undefined,
+          marque: row['Marque'] ? String(row['Marque']).trim() : undefined,
+          matricule: matricule,
+          adresse: row['adresse'] ? String(row['adresse']).trim() : undefined,
+          numeroChassis: row['N° Chassis'] ? String(row['N° Chassis']).trim() : undefined,
+          premiereDateCirculation: row['1iére Date Circulation'] ? String(row['1iére Date Circulation']).trim() : undefined,
+          dateAssurance: row['date Assurance'] ? String(row['date Assurance']).trim() : undefined,
+          finAssurance: row['Fin Assurance'] ? String(row['Fin Assurance']).trim() : undefined,
+          dateTaxe: row['Date Taxe'] ? String(row['Date Taxe']).trim() : undefined,
+          finTaxe: row['Fin Taxe'] ? String(row['Fin Taxe']).trim() : undefined,
+          dateDebutVisiteTechnique: row['date debut visite technique'] ? String(row['date debut visite technique']).trim() : undefined,
+          dateFinVisiteTechnique: row['date fin visite technique'] ? String(row['date fin visite technique']).trim() : undefined,
+          refFiltreAir: row['ref_filtre air'] ? String(row['ref_filtre air']).trim() : undefined,
+          refFiltreHuile: row['Ref _filtre Huile'] ? String(row['Ref _filtre Huile']).trim() : undefined,
+          validiteCarteCirculation: row['validité carte circulation'] ? String(row['validité carte circulation']).trim() : undefined,
         });
         result.imported++;
       } catch (e: any) {

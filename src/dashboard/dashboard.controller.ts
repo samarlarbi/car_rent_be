@@ -3,18 +3,33 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-/// "John Doe", or just "John" when there is no last name; null when there is no customer.
+/// "John Doe" from fullName (or firstName/lastName if present); null when there is no customer.
 function customerNameOf(customer: any): string | null {
   if (!customer) return null;
   const full = [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim();
-  return full || customer.fullName || null;
+  return customer.fullName?.trim() || full || null;
 }
 
-/// "Toyota Camry" when make/model are known, otherwise the plate number.
+/// "Peugeot 208" from marque + codeEngin, otherwise the plate (matricule).
 function carNameOf(car: any): string | null {
   if (!car) return null;
-  const name = [car.make, car.model].filter(Boolean).join(' ').trim();
-  return name || car.plateNumber || null;
+  const name = [car.marque, car.codeEngin].filter(Boolean).join(' ').trim();
+  return name || car.matricule || null;
+}
+
+/// Shape every dashboard list item the same way so the Flutter app can
+/// rely on the same keys everywhere.
+function toDashboardItem(r: any) {
+  return {
+    id: r.id,
+    carId: r.carId,
+    customerId: r.customerId,
+    customerName: customerNameOf(r.customer),
+    startDate: r.startDate,
+    endDate: r.endDate,
+    status: r.status,
+    carName: carNameOf(r.car),
+  };
 }
 
 @ApiTags('dashboard')
@@ -45,58 +60,38 @@ export class DashboardController {
   @ApiOperation({ summary: 'Get upcoming reservations' })
   @ApiQuery({ name: 'days', required: false, type: Number })
   async getUpcomingReservations(@Query('days') days?: number) {
-    const reservations = await this.dashboardService.getUpcomingReservations(days ? parseInt(days.toString()) : 7);
-    // Format for frontend
-    return reservations.map(r => ({
-      id: r.id,
-      reservationNumber: r.reservationNumber,
-      customerName: customerNameOf(r.customer),
-      startDate: r.startDate,
-      endDate: r.endDate,
-      status: r.status,
-      carName: carNameOf(r.car),
-    }));
+    const reservations = await this.dashboardService.getUpcomingReservations(
+      days ? parseInt(days.toString()) : 7,
+    );
+    return reservations.map(toDashboardItem);
   }
 
   @Get('today-pickups')
   @ApiOperation({ summary: 'Get today pickups' })
   async getTodayPickups() {
     const activity = await this.dashboardService.getTodayActivity();
-    return activity.pickups.map(p => ({
-      id: p.id,
-      reservationNumber: p.reservationNumber,
-      customerName: customerNameOf(p.customer),
-      startDate: p.startDate,
-      carName: carNameOf(p.car),
-    }));
+    return activity.pickups.map(toDashboardItem);
   }
-@Get('ongoing')
+
+  @Get('ongoing')
   @ApiOperation({ summary: 'Get ongoing reservations' })
   async getOngoingReservations() {
     const reservations = await this.dashboardService.getOngoingReservations();
-    return reservations.map(r => ({
-      id: r.id,
-      reservationNumber: r.reservationNumber,
-      customerName: customerNameOf(r.customer),
-      startDate: r.startDate,
-      endDate: r.endDate,
-      status: r.status,
-      carName: carNameOf(r.car),
-    }));
+    return reservations.map(toDashboardItem);
   }
+
   @Get('today-returns')
   @ApiOperation({ summary: 'Get today returns' })
   async getTodayReturns() {
     const activity = await this.dashboardService.getTodayActivity();
-    return activity.returns.map(r => ({
-      id: r.id,
-      reservationNumber: r.reservationNumber,
-      customerName: customerNameOf(r.customer),
-      startDate: r.startDate,
-      endDate: r.endDate,
-      status: r.status,
-      carName: carNameOf(r.car),
-    }));
+    return activity.returns.map(toDashboardItem);
+  }
+
+  @Get('today-ends')
+  @ApiOperation({ summary: 'Get reservations that end today' })
+  async getTodayEnds() {
+    const reservations = await this.dashboardService.getTodayEnds();
+    return reservations.map(toDashboardItem);
   }
 
   @Get('available-cars')
@@ -104,20 +99,7 @@ export class DashboardController {
   async getAvailableCarsCount() {
     return { available: await this.dashboardService.getAvailableCarsCount() };
   }
-@Get('today-ends')
-@ApiOperation({ summary: 'Get reservations that end today' })
-async getTodayEnds() {
-  const reservations = await this.dashboardService.getTodayEnds();
-  return reservations.map(r => ({
-    id: r.id,
-    reservationNumber: r.reservationNumber,
-    customerName: customerNameOf(r.customer),
-    startDate: r.startDate,
-    endDate: r.endDate,
-    status: r.status,
-    carName: carNameOf(r.car),
-  }));
-}
+
   @Get('active-reservations')
   @ApiOperation({ summary: 'Get count of active reservations' })
   async getActiveReservationsCount() {

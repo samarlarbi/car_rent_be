@@ -2,21 +2,78 @@ import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateCarDto {
-  @ApiPropertyOptional({ example: 'Toyota', description: 'Car make (marque)' })
+  @ApiPropertyOptional({ example: '1', description: 'Code Engin' })
   @IsString()
   @IsOptional()
-  make?: string;
+  codeEngin?: string;
 
-  @ApiPropertyOptional({ example: 'Camry', description: 'Car model (modèle)' })
+  @ApiPropertyOptional({ example: 'HYUNDAI', description: 'Marque' })
   @IsString()
   @IsOptional()
-  model?: string;
+  marque?: string;
 
-  // Required now: the plate is the only thing that identifies a car.
-  // (It used to be optional, which made the duplicate check in the service
-  // match any car when the plate was missing.)
-  @ApiProperty({ example: 'ABC-1234', description: 'License plate number' })
+  @ApiProperty({ example: '4 TU 219', description: 'Matricule' })
   @IsString()
   @IsNotEmpty()
-  plateNumber: string;
+  matricule: string;
+
+  @ApiPropertyOptional({ example: 'hchem zarsis', description: 'Adresse' })
+  @IsString()
+  @IsOptional()
+  adresse?: string;
+
+  @ApiPropertyOptional({ example: 'MALA851CALM067748', description: 'N° Chassis' })
+  @IsString()
+  @IsOptional()
+  numeroChassis?: string;
+
+  @ApiPropertyOptional({ example: '2020-11-09', description: '1iére Date Circulation' })
+  @IsString()
+  @IsOptional()
+  premiereDateCirculation?: string;
+
+  @ApiPropertyOptional({ example: '2023-01-01', description: 'Date Assurance' })
+  @IsString()
+  @IsOptional()
+  dateAssurance?: string;
+
+  @ApiPropertyOptional({ example: '2023-04-20', description: 'Fin Assurance' })
+  @IsString()
+  @IsOptional()
+  finAssurance?: string;
+
+  @ApiPropertyOptional({ example: '2023-01-01', description: 'Date Taxe' })
+  @IsString()
+  @IsOptional()
+  dateTaxe?: string;
+
+  @ApiPropertyOptional({ example: '2023-12-31', description: 'Fin Taxe' })
+  @IsString()
+  @IsOptional()
+  finTaxe?: string;
+
+  @ApiPropertyOptional({ example: '2015-02-08', description: 'Date debut visite technique' })
+  @IsString()
+  @IsOptional()
+  dateDebutVisiteTechnique?: string;
+
+  @ApiPropertyOptional({ example: '2015-08-06', description: 'Date fin visite technique' })
+  @IsString()
+  @IsOptional()
+  dateFinVisiteTechnique?: string;
+
+  @ApiPropertyOptional({ example: 'R 520', description: 'Ref filtre air' })
+  @IsString()
+  @IsOptional()
+  refFiltreAir?: string;
+
+  @ApiPropertyOptional({ example: 'FT 651', description: 'Ref filtre Huile' })
+  @IsString()
+  @IsOptional()
+  refFiltreHuile?: string;
+
+  @ApiPropertyOptional({ example: '2023-04-27', description: 'Validité carte circulation' })
+  @IsString()
+  @IsOptional()
+  validiteCarteCirculation?: string;
 }
