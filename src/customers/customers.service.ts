@@ -9,7 +9,7 @@ import { Customer } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 
-const NULLABLE_STRING_FIELDS = ['phone', 'phone2', 'address', 'city', 'cin'];
+const NULLABLE_STRING_FIELDS = ['phone', 'phone2', 'address', 'city'];
 
 @Injectable()
 export class CustomersService {
@@ -158,15 +158,6 @@ export class CustomersService {
 
     await this.checkDuplicate(dto.fullName, dto.phone);
 
-    if (dto.cin) {
-      const existingByCin = await this.customersRepository.findOne({
-        where: { cin: dto.cin, deletedAt: IsNull() },
-      });
-      if (existingByCin) {
-        throw new ConflictException('A customer with this CIN already exists.');
-      }
-    }
-
     if (dto.fullName && !options.skipSimilarCheck) {
       await this.checkSimilarName(dto.fullName);
     }
@@ -194,7 +185,6 @@ export class CustomersService {
           { ...base, fullName: Like(`%${search}%`) },
           { ...base, phone: Like(`%${search}%`) },
           { ...base, phone2: Like(`%${search}%`) },
-          { ...base, cin: Like(`%${search}%`) },
         ]
       : base;
 
@@ -253,15 +243,6 @@ export class CustomersService {
       await this.checkDuplicate(newName, newPhone, id);
     }
 
-    if (dto.cin && dto.cin !== customer.cin) {
-      const existing = await this.customersRepository.findOne({
-        where: { cin: dto.cin, deletedAt: IsNull() },
-      });
-      if (existing && existing.id !== id) {
-        throw new ConflictException('Customer with this CIN already exists');
-      }
-    }
-
     if (dto.fullName && dto.fullName !== customer.fullName) {
       await this.checkSimilarName(dto.fullName, id);
     }
@@ -286,7 +267,6 @@ export class CustomersService {
         { fullName: Like(`%${query}%`), deletedAt: IsNull() },
         { phone: Like(`%${query}%`), deletedAt: IsNull() },
         { phone2: Like(`%${query}%`), deletedAt: IsNull() },
-        { cin: Like(`%${query}%`), deletedAt: IsNull() },
       ],
       take: 10,
     });

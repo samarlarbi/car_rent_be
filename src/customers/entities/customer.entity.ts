@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 
 @Entity('customers')
+// Fields mirror the Excel columns: name, address, city, phone, phone 2
 // Same name + same phone = duplicate (rows with a NULL phone are checked in the service)
 @Unique(['fullName', 'phone'])
 export class Customer {
@@ -30,9 +31,6 @@ export class Customer {
 
   @Column({ nullable: true })
   city: string;
-
-  @Column({ unique: true, nullable: true })
-  cin: string;
 
   @CreateDateColumn()
   createdAt: Date;

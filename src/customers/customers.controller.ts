@@ -75,7 +75,6 @@ export class CustomersController {
       { header: 'Ville', key: 'city' },
       { header: 'Téléphone', key: 'phone' },
       { header: 'Téléphone 2', key: 'phone2' },
-      { header: 'CIN', key: 'cin' },
     ]);
 
     res.set({
