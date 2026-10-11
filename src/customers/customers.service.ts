@@ -349,11 +349,10 @@ export class CustomersService {
     return await this.customersRepository.save(customer);
   }
 
-  async remove(id: string): Promise<void> {
-    await this.findOne(id);
-    await this.customersRepository.softDelete(id);
+async remove(id: string): Promise<void> {
+    const customer = await this.findOne(id);
+    await this.customersRepository.remove(customer); // Permanently deletes the record from the database
   }
-
   async restore(id: string): Promise<Customer> {
     await this.customersRepository.restore(id);
     return this.findOne(id);
