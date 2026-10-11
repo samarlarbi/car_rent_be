@@ -4,7 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, IsNull, DeepPartial } from 'typeorm';
+import { Repository, ILike, IsNull, DeepPartial } from 'typeorm';
 import { Customer } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -280,9 +280,9 @@ export class CustomersService {
 
     const where: any = search
       ? [
-          { ...base, fullName: Like(`%${search}%`) },
-          { ...base, phone: Like(`%${search}%`) },
-          { ...base, phone2: Like(`%${search}%`) },
+          { ...base, fullName: ILike(`%${search}%`) },
+          { ...base, phone: ILike(`%${search}%`) },
+          { ...base, phone2: ILike(`%${search}%`) },
         ]
       : base;
 
@@ -362,9 +362,9 @@ export class CustomersService {
   async search(query: string): Promise<Customer[]> {
     return await this.customersRepository.find({
       where: [
-        { fullName: Like(`%${query}%`), deletedAt: IsNull() },
-        { phone: Like(`%${query}%`), deletedAt: IsNull() },
-        { phone2: Like(`%${query}%`), deletedAt: IsNull() },
+        { fullName: ILike(`%${query}%`), deletedAt: IsNull() },
+        { phone: ILike(`%${query}%`), deletedAt: IsNull() },
+        { phone2: ILike(`%${query}%`), deletedAt: IsNull() },
       ],
       take: 10,
     });
