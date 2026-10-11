@@ -4,7 +4,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, IsNull } from 'typeorm';
+import { Repository, Like, IsNull, DeepPartial } from 'typeorm';
 import { Customer } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -166,6 +166,104 @@ export class CustomersService {
     return await this.customersRepository.save(newCustomer as any);
   }
 
+  /**
+   * Import rows and MERGE them into existing customers.
+   * - Same name + same phone  -> existing customer, blank fields are filled
+   * - Same name, existing has no phone -> existing customer gets the phone (+ other blanks)
+   * - Same name, other phone -> treated as a different person, created
+   * - No match -> created
+   * Existing non-empty values are never overwritten.
+   */
+  async importRows(
+    rows: {
+      row: number;
+      fullName: string;
+      phone?: string;
+      phone2?: string;
+      address?: string;
+      city?: string;
+      allowMatch: boolean; // false when the sheet row has no real name
+    }[],
+  ) {
+    const result = {
+      imported: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as { row: number; reason: string }[],
+    };
+
+    const all = await this.customersRepository.find({
+      where: { deletedAt: IsNull() },
+    });
+    const byName = new Map<string, Customer[]>();
+    const index = (c: Customer) => {
+      const key = this.normalizeString(c.fullName);
+      if (!key) return;
+      const list = byName.get(key) ?? [];
+      list.push(c);
+      byName.set(key, list);
+    };
+    all.forEach(index);
+
+    for (const r of rows) {
+      try {
+        const candidates = r.allowMatch
+          ? (byName.get(this.normalizeString(r.fullName)) ?? [])
+          : [];
+
+        let target: Customer | undefined;
+        if (r.phone) {
+          target =
+            candidates.find((c) => c.phone === r.phone) ??
+            candidates.find((c) => !c.phone);
+        } else {
+          target = candidates[0];
+        }
+
+        if (!target) {
+          const data: DeepPartial<Customer> = { fullName: r.fullName };
+          if (r.phone) data.phone = r.phone;
+          if (r.phone2) data.phone2 = r.phone2;
+          if (r.address) data.address = r.address;
+          if (r.city) data.city = r.city;
+          const created = await this.customersRepository.save(
+            this.customersRepository.create(data),
+          );
+          index(created);
+          result.imported++;
+          continue;
+        }
+
+        // Fill blanks only
+        const patch: Partial<Customer> = {};
+        if (!target.phone && r.phone) patch.phone = r.phone;
+        const finalPhone = patch.phone ?? target.phone;
+        if (!target.phone2 && r.phone2 && r.phone2 !== finalPhone) {
+          patch.phone2 = r.phone2;
+        }
+        if (!target.address && r.address) patch.address = r.address;
+        if (!target.city && r.city) patch.city = r.city;
+
+        if (Object.keys(patch).length > 0) {
+          Object.assign(target, patch);
+          await this.customersRepository.save(target);
+          result.updated++;
+        } else {
+          result.skipped++;
+          result.errors.push({
+            row: r.row,
+            reason: 'Déjà existant, rien à mettre à jour',
+          });
+        }
+      } catch (e: any) {
+        result.skipped++;
+        result.errors.push({ row: r.row, reason: e.message || 'Erreur inconnue' });
+      }
+    }
+
+    return result;
+  }
+
   async findAll(params?: {
     search?: string;
     page?: number;
@@ -192,7 +290,7 @@ export class CustomersService {
 
     const [data, total] = await this.customersRepository.findAndCount({
       where,
-      order: { createdAt: 'DESC' },
+      order: { createdAt: 'DESC', id: 'ASC' }, // id = stable tie-breaker for pagination
       skip,
       take: limit,
     });

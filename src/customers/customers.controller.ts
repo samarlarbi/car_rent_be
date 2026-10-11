@@ -112,11 +112,15 @@ export class CustomersController {
     const firstRow = ws.getRow(1);
     const startRow = /\d/.test(text(firstRow, 4)) ? 1 : 2;
 
-    const result = {
-      imported: 0,
-      skipped: 0,
-      errors: [] as { row: number; reason: string }[],
-    };
+    const rows: {
+      row: number;
+      fullName: string;
+      phone?: string;
+      phone2?: string;
+      address?: string;
+      city?: string;
+      allowMatch: boolean;
+    }[] = [];
 
     for (let r = startRow; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
@@ -131,25 +135,19 @@ export class CustomersController {
         continue;
       }
 
-      try {
-        await this.customersService.create(
-          {
-            fullName: rawName || phone || 'Sans nom',
-            phone,
-            phone2,
-            address: placeholder(address) ? undefined : address,
-            city: placeholder(city) ? undefined : city,
-          } as any,
-          { skipSimilarCheck: true },
-        );
-        result.imported++;
-      } catch (e: any) {
-        result.skipped++;
-        result.errors.push({ row: r, reason: e.message || 'Erreur inconnue' });
-      }
+      rows.push({
+        row: r,
+        fullName: rawName || phone || 'Sans nom',
+        phone,
+        phone2,
+        address: placeholder(address) ? undefined : address,
+        city: placeholder(city) ? undefined : city,
+        allowMatch: !!rawName, // nameless rows are always created, never merged
+      });
     }
 
-    return result;
+    // Merges into existing customers (fills blank fields) or creates new ones
+    return this.customersService.importRows(rows);
   }
 
   @Get('stats')
