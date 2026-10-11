@@ -119,22 +119,44 @@ export class CustomersService {
     }
   }
 
+  /**
+   * A customer is a duplicate when another active customer has the same
+   * (normalized) name AND the same phone. Two different people may share a
+   * phone number (family), and the same name with a different phone is allowed.
+   * Rows without a phone are compared by name among other rows without a phone.
+   */
+  private async checkDuplicate(
+    fullName: string | undefined,
+    phone: string | null | undefined,
+    excludeId?: string,
+  ): Promise<void> {
+    const target = this.normalizeString(fullName);
+    if (!target) return;
+
+    const sameContact = await this.customersRepository.find({
+      where: { deletedAt: IsNull(), phone: phone ? phone : IsNull() } as any,
+      select: ['id', 'fullName', 'phone'],
+    });
+
+    for (const c of sameContact) {
+      if (excludeId && c.id === excludeId) continue;
+      if (this.normalizeString(c.fullName) === target) {
+        throw new ConflictException(
+          phone
+            ? `A customer named "${c.fullName}" with this phone number already exists.`
+            : `A customer named "${c.fullName}" already exists.`,
+        );
+      }
+    }
+  }
+
   async create(
     createCustomerDto: CreateCustomerDto,
     options: { skipSimilarCheck?: boolean } = {},
   ) {
     const dto = this.blankToNull(createCustomerDto as Record<string, any>);
 
-    if (dto.phone) {
-      const existingByPhone = await this.customersRepository.findOne({
-        where: { phone: dto.phone, deletedAt: IsNull() },
-      });
-      if (existingByPhone) {
-        throw new ConflictException(
-          'A customer with this phone number already exists.',
-        );
-      }
-    }
+    await this.checkDuplicate(dto.fullName, dto.phone);
 
     if (dto.cin) {
       const existingByCin = await this.customersRepository.findOne({
@@ -225,15 +247,10 @@ export class CustomersService {
     const customer = await this.findOne(id);
     const dto = this.blankToNull(updateCustomerDto as Record<string, any>);
 
-    if (dto.phone && dto.phone !== customer.phone) {
-      const existing = await this.customersRepository.findOne({
-        where: { phone: dto.phone, deletedAt: IsNull() },
-      });
-      if (existing && existing.id !== id) {
-        throw new ConflictException(
-          'Customer with this phone number already exists',
-        );
-      }
+    const newName = dto.fullName ?? customer.fullName;
+    const newPhone = 'phone' in dto ? dto.phone : customer.phone;
+    if (newName !== customer.fullName || (newPhone ?? null) !== (customer.phone ?? null)) {
+      await this.checkDuplicate(newName, newPhone, id);
     }
 
     if (dto.cin && dto.cin !== customer.cin) {

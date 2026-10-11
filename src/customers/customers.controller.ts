@@ -105,8 +105,8 @@ export class CustomersController {
       const digits = v.replace(/\D/g, '');
       return digits && !/^0+$/.test(digits) ? digits : undefined;
     };
-    const isJunk = (v: string) =>
-      !v || v.includes('*') || ['annule', 'vide'].includes(v.toLowerCase());
+    // Empty cells and "********" placeholders are treated as missing
+    const placeholder = (v: string) => !v || v.includes('*');
 
     // Columns: A=full name, B=address, C=city, D=phone, E=phone 2
     // Skip row 1 if it looks like a header (no digits in the phone column)
@@ -121,25 +121,25 @@ export class CustomersController {
 
     for (let r = startRow; r <= ws.rowCount; r++) {
       const row = ws.getRow(r);
-      const fullName = text(row, 1);
+      const rawName = text(row, 1);
       const address = text(row, 2);
       const city = text(row, 3);
+      const phone = cleanPhone(text(row, 4));
+      const phone2 = cleanPhone(text(row, 5));
 
-      if (!fullName && !text(row, 4)) continue; // fully empty row
-      if (isJunk(fullName)) {
-        result.skipped++;
-        result.errors.push({ row: r, reason: 'Ligne vide ou annulée' });
+      // only skip rows that are completely empty
+      if (!rawName && !address && !city && !text(row, 4) && !text(row, 5)) {
         continue;
       }
 
       try {
         await this.customersService.create(
           {
-            fullName,
-            phone: cleanPhone(text(row, 4)),
-            phone2: cleanPhone(text(row, 5)),
-            address: isJunk(address) ? undefined : address,
-            city: isJunk(city) ? undefined : city,
+            fullName: rawName || phone || 'Sans nom',
+            phone,
+            phone2,
+            address: placeholder(address) ? undefined : address,
+            city: placeholder(city) ? undefined : city,
           } as any,
           { skipSimilarCheck: true },
         );
