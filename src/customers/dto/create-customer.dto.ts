@@ -1,23 +1,41 @@
-import {
-  IsString,
-  IsOptional,
-  Matches,
-} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
+// NOTE: I haven't seen your original DTO. Compare with it and keep any
+// extra fields/decorators you already had.
 export class CreateCustomerDto {
-  @ApiProperty({ example: 'John Doe', description: 'Full name' })
+  @ApiProperty()
   @IsString()
-  fullName: string; // 👈 Changed from firstName to fullName
+  @IsNotEmpty()
+  fullName: string;
 
-  @ApiPropertyOptional({ example: '+1234567890', description: 'Phone number' })
-   @IsOptional()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-@Matches(/^(\+?[\d\s\-()]{7,20})?$/, {message: 'Le format du numéro de téléphone est invalide',  })
   phone?: string;
 
-  @ApiPropertyOptional({ example: '12345678', description: 'National Identity Card (CIN)' })
-  @IsString()
+  @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  phone2?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   cin?: string;
 }
+
+// ---- update-customer.dto.ts ----
+// import { PartialType } from '@nestjs/swagger';
+// import { CreateCustomerDto } from './create-customer.dto';
+// export class UpdateCustomerDto extends PartialType(CreateCustomerDto) {}

@@ -24,16 +24,17 @@ import {
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
+import * as ExcelJS from 'exceljs';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
-import { buildExcelBuffer, parseExcelBuffer } from '../common/excel/excel.util';
+import { buildExcelBuffer } from '../common/excel/excel.util';
+
 @ApiTags('customers')
 @Controller('customers')
-
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class CustomersController {
@@ -57,59 +58,101 @@ export class CustomersController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit?: number,
   ) {
-    return this.customersService.findAll({
-      search,
-      page,
-      limit,
-    });
+    return this.customersService.findAll({ search, page, limit });
   }
 
   @Get('export')
   @ApiOperation({ summary: 'Export all customers to Excel' })
   async exportCustomers(@Res() res: Response) {
-    const { data } = await this.customersService.findAll({ page: 1, limit: 1_000_000 });
+    const { data } = await this.customersService.findAll({
+      page: 1,
+      limit: 1_000_000,
+    });
 
     const buffer = await buildExcelBuffer(data as any, [
-      { header: 'Prénom', key: 'firstName' },
-      { header: 'Nom', key: 'lastName' },
+      { header: 'Nom et Prénom', key: 'fullName' },
+      { header: 'Adresse', key: 'address' },
+      { header: 'Ville', key: 'city' },
       { header: 'Téléphone', key: 'phone' },
+      { header: 'Téléphone 2', key: 'phone2' },
+      { header: 'CIN', key: 'cin' },
     ]);
 
     res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': 'attachment; filename="clients-export.xlsx"',
     });
     res.send(buffer);
   }
 
- @Post('import')
+  @Post('import')
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Import customers from an Excel file' })
   async importCustomers(@UploadedFile() file: { buffer: Buffer }) {
     if (!file) throw new BadRequestException('No file uploaded');
 
-    const rows = await parseExcelBuffer(file.buffer);
-    const result = { imported: 0, skipped: 0, errors: [] as { row: number; reason: string }[] };
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(file.buffer as any);
+    const ws = wb.worksheets[0];
+    if (!ws) throw new BadRequestException('Empty workbook');
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
+    const text = (row: ExcelJS.Row, col: number) =>
+      String(row.getCell(col).text ?? '').trim();
+
+    // Digits only; treat "0", "00000000", "" as no phone
+    const cleanPhone = (v: string): string | undefined => {
+      const digits = v.replace(/\D/g, '');
+      return digits && !/^0+$/.test(digits) ? digits : undefined;
+    };
+    const isJunk = (v: string) =>
+      !v || v.includes('*') || ['annule', 'vide'].includes(v.toLowerCase());
+
+    // Columns: A=full name, B=address, C=city, D=phone, E=phone 2
+    // Skip row 1 if it looks like a header (no digits in the phone column)
+    const firstRow = ws.getRow(1);
+    const startRow = /\d/.test(text(firstRow, 4)) ? 1 : 2;
+
+    const result = {
+      imported: 0,
+      skipped: 0,
+      errors: [] as { row: number; reason: string }[],
+    };
+
+    for (let r = startRow; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const fullName = text(row, 1);
+      const address = text(row, 2);
+      const city = text(row, 3);
+
+      if (!fullName && !text(row, 4)) continue; // fully empty row
+      if (isJunk(fullName)) {
+        result.skipped++;
+        result.errors.push({ row: r, reason: 'Ligne vide ou annulée' });
+        continue;
+      }
+
       try {
-        // 👇 Combine Prénom and Nom into a single fullName string
-        const fullName = [row['Prénom'], row['Nom']].filter(Boolean).join(' ').trim();
-        
-        await this.customersService.create({
-          fullName: fullName.length > 0 ? fullName : 'Unknown', // 👈 Fixed
-          phone: row['Téléphone'] ? String(row['Téléphone']).trim() : undefined,
-        });
+        await this.customersService.create(
+          {
+            fullName,
+            phone: cleanPhone(text(row, 4)),
+            phone2: cleanPhone(text(row, 5)),
+            address: isJunk(address) ? undefined : address,
+            city: isJunk(city) ? undefined : city,
+          } as any,
+          { skipSimilarCheck: true },
+        );
         result.imported++;
       } catch (e: any) {
         result.skipped++;
-        result.errors.push({ row: i + 2, reason: e.message || 'Erreur inconnue' });
+        result.errors.push({ row: r, reason: e.message || 'Erreur inconnue' });
       }
     }
 
     return result;
   }
+
   @Get('stats')
   @ApiOperation({ summary: 'Get customer statistics' })
   async getStats() {

@@ -1,25 +1,26 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  DeleteDateColumn,
-} from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from "typeorm";
 
 @Entity('customers')
 export class Customer {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // 👇 Replaced firstName & lastName with fullName
   @Column()
   fullName: string;
 
   @Column({ unique: true, nullable: true })
   phone: string;
 
-@Column({ unique: true, nullable: true })
+  @Column({ nullable: true })
+  phone2: string; // 👈 Secondary phone
+
+  @Column({ nullable: true })
+  address: string; // 👈 Address
+
+  @Column({ nullable: true })
+  city: string; // 👈 City
+
+  @Column({ unique: true, nullable: true })
   cin: string;
 
   @CreateDateColumn()

@@ -9,6 +9,8 @@ import { Customer } from './entities/customer.entity';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 
+const NULLABLE_STRING_FIELDS = ['phone', 'phone2', 'address', 'city', 'cin'];
+
 @Injectable()
 export class CustomersService {
   constructor(
@@ -17,7 +19,7 @@ export class CustomersService {
   ) {}
 
   /**
-   * Implémentation interne de la distance de Levenshtein (évite l'erreur ESM de la lib externe)
+   * Internal Levenshtein distance (avoids the ESM error of the external lib)
    */
   private getLevenshteinDistance(a: string, b: string): number {
     const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
@@ -32,7 +34,7 @@ export class CustomersService {
             matrix[i - 1][j - 1] + 1, // substitution
             Math.min(
               matrix[i][j - 1] + 1, // insertion
-              matrix[i - 1][j] + 1  // deletion
+              matrix[i - 1][j] + 1, // deletion
             ),
           );
         }
@@ -42,22 +44,43 @@ export class CustomersService {
   }
 
   /**
-   * Helper to normalize strings for comparison (lowercase, remove extra spaces/accents)
+   * Normalize strings for comparison (lowercase, remove accents / extra spaces)
    */
   private normalizeString(str?: string): string {
     if (!str) return '';
     return str
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove accents (é -> e, etc.)
+      .replace(/[\u0300-\u036f]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
   }
 
   /**
-   * Checks if a new name is too similar to an existing customer name using Levenshtein distance.
+   * Trims optional string fields and turns empty strings into null.
    */
-  private async checkSimilarName(fullName: string, excludeId?: string): Promise<void> {
+  private blankToNull(input: Record<string, any>): Record<string, any> {
+    const dto = { ...input };
+    for (const key of NULLABLE_STRING_FIELDS) {
+      const value = dto[key];
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        dto[key] = trimmed === '' ? null : trimmed;
+      }
+    }
+    if (typeof dto.fullName === 'string') {
+      dto.fullName = dto.fullName.trim();
+    }
+    return dto;
+  }
+
+  /**
+   * Checks if a new name is too similar to an existing customer name.
+   */
+  private async checkSimilarName(
+    fullName: string,
+    excludeId?: string,
+  ): Promise<void> {
     const normalizedNewName = this.normalizeString(fullName);
     if (!normalizedNewName) return;
 
@@ -73,40 +96,43 @@ export class CustomersService {
       if (!normalizedExisting) continue;
 
       if (normalizedExisting === normalizedNewName) {
-        throw new ConflictException(`A customer with the name "${customer.fullName}" already exists.`);
+        throw new ConflictException(
+          `A customer with the name "${customer.fullName}" already exists.`,
+        );
       }
 
-      const distance = this.getLevenshteinDistance(normalizedNewName, normalizedExisting);
-      const maxLength = Math.max(normalizedNewName.length, normalizedExisting.length);
+      const distance = this.getLevenshteinDistance(
+        normalizedNewName,
+        normalizedExisting,
+      );
+      const maxLength = Math.max(
+        normalizedNewName.length,
+        normalizedExisting.length,
+      );
       const threshold = maxLength <= 6 ? 1 : 2;
 
       if (distance <= threshold) {
         throw new ConflictException(
-          `A very similar customer name already exists: "${customer.fullName}". Please check for duplicates.`
+          `A very similar customer name already exists: "${customer.fullName}". Please check for duplicates.`,
         );
       }
     }
   }
 
-  async create(createCustomerDto: CreateCustomerDto) {
-    const dto = { ...createCustomerDto } as Omit<CreateCustomerDto, 'phone' | 'cin'> & {
-      phone?: string | null;
-      cin?: string | null;
-    };
-
-    if (dto.phone !== undefined && dto.phone !== null && dto.phone.trim() === '') {
-      dto.phone = null;
-    }
-    if (dto.cin !== undefined && dto.cin !== null && dto.cin.trim() === '') {
-      dto.cin = null;
-    }
+  async create(
+    createCustomerDto: CreateCustomerDto,
+    options: { skipSimilarCheck?: boolean } = {},
+  ) {
+    const dto = this.blankToNull(createCustomerDto as Record<string, any>);
 
     if (dto.phone) {
       const existingByPhone = await this.customersRepository.findOne({
         where: { phone: dto.phone, deletedAt: IsNull() },
       });
       if (existingByPhone) {
-        throw new ConflictException('A customer with this phone number already exists.');
+        throw new ConflictException(
+          'A customer with this phone number already exists.',
+        );
       }
     }
 
@@ -119,19 +145,25 @@ export class CustomersService {
       }
     }
 
-    if (dto.fullName) {
+    if (dto.fullName && !options.skipSimilarCheck) {
       await this.checkSimilarName(dto.fullName);
     }
 
-    const newCustomer = this.customersRepository.create(dto);
-    return await this.customersRepository.save(newCustomer);
+    const newCustomer = this.customersRepository.create(dto as any);
+    return await this.customersRepository.save(newCustomer as any);
   }
 
   async findAll(params?: {
     search?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ data: Customer[]; total: number; page: number; pages: number; perPage: number }> {
+  }): Promise<{
+    data: Customer[];
+    total: number;
+    page: number;
+    pages: number;
+    perPage: number;
+  }> {
     const { search, page = 1, limit = 20 } = params || {};
     const base: any = { deletedAt: IsNull() };
 
@@ -139,6 +171,7 @@ export class CustomersService {
       ? [
           { ...base, fullName: Like(`%${search}%`) },
           { ...base, phone: Like(`%${search}%`) },
+          { ...base, phone2: Like(`%${search}%`) },
           { ...base, cin: Like(`%${search}%`) },
         ]
       : base;
@@ -185,27 +218,21 @@ export class CustomersService {
     return customer;
   }
 
-  async update(id: string, updateCustomerDto: UpdateCustomerDto): Promise<Customer> {
+  async update(
+    id: string,
+    updateCustomerDto: UpdateCustomerDto,
+  ): Promise<Customer> {
     const customer = await this.findOne(id);
-
-    const dto = { ...updateCustomerDto } as Omit<UpdateCustomerDto, 'phone' | 'cin'> & {
-      phone?: string | null;
-      cin?: string | null;
-    };
-
-    if (dto.phone !== undefined && dto.phone !== null && dto.phone.trim() === '') {
-      dto.phone = null;
-    }
-    if (dto.cin !== undefined && dto.cin !== null && dto.cin.trim() === '') {
-      dto.cin = null;
-    }
+    const dto = this.blankToNull(updateCustomerDto as Record<string, any>);
 
     if (dto.phone && dto.phone !== customer.phone) {
       const existing = await this.customersRepository.findOne({
         where: { phone: dto.phone, deletedAt: IsNull() },
       });
       if (existing && existing.id !== id) {
-        throw new ConflictException('Customer with this phone number already exists');
+        throw new ConflictException(
+          'Customer with this phone number already exists',
+        );
       }
     }
 
@@ -241,6 +268,7 @@ export class CustomersService {
       where: [
         { fullName: Like(`%${query}%`), deletedAt: IsNull() },
         { phone: Like(`%${query}%`), deletedAt: IsNull() },
+        { phone2: Like(`%${query}%`), deletedAt: IsNull() },
         { cin: Like(`%${query}%`), deletedAt: IsNull() },
       ],
       take: 10,
@@ -248,7 +276,9 @@ export class CustomersService {
   }
 
   async getStats(): Promise<{ total: number }> {
-    const total = await this.customersRepository.count({ where: { deletedAt: IsNull() } });
+    const total = await this.customersRepository.count({
+      where: { deletedAt: IsNull() },
+    });
     return { total };
   }
 }
