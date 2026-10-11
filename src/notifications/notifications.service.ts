@@ -25,7 +25,7 @@ export class NotificationsService {
   }
 
   /**
-   * Méthode appelée par vos Cron jobs pour notifier tout le staff actif
+   * Méthode appelée par vos Cron jobs (via cron-job.org ou Vercel) pour notifier tout le staff actif
    */
   async sendToAllActiveStaff(title: string, body: string, data?: Record<string, string>) {
     return this.sendPushNotification(title, body, data);
@@ -55,7 +55,7 @@ export class NotificationsService {
           ...(data || {}),
           title,
           body,
-        },pushNamed
+        },
         android: {
           priority: 'high',
           notification: {
