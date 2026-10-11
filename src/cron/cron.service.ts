@@ -28,7 +28,9 @@ export class CronService {
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     let startedCount = 0;
+    let completedCount = 0;
 
+    // 1. Start confirmed rentals for today
     const toStart = await this.reservationRepo.find({
       where: {
         status: ReservationStatus.CONFIRMED,
@@ -47,6 +49,28 @@ export class CronService {
       }
     }
 
+    // 2. Automatically complete reservations whose end date has passed
+    const toComplete = await this.reservationRepo.find({
+      where: {
+        status: In([ReservationStatus.ONGOING, ReservationStatus.CONFIRMED]),
+        endDate: LessThanOrEqual(startOfToday), // Ends on or before today, so time has elapsed
+      },
+    });
+
+    for (const reservation of toComplete) {
+      try {
+        reservation.status = ReservationStatus.COMPLETED;
+        if (!reservation.actualReturnDate) {
+          reservation.actualReturnDate = reservation.endDate;
+        }
+        await this.reservationRepo.save(reservation);
+        completedCount++;
+      } catch (e) {
+        this.logger.error(`Failed to auto-complete reservation ${reservation.id}`, e as Error);
+      }
+    }
+
+    // 3. Sync car statuses so cars return to 'disponible'
     const cars = await this.carRepo.find({
       where: { deletedAt: IsNull() },
       select: { id: true },
@@ -55,10 +79,9 @@ export class CronService {
       await this.reservationsService.syncCarStatus(car.id);
     }
 
-    this.logger.log(`Cron sync: started ${startedCount} rental(s), synced ${cars.length} car(s)`);
-    return { started: startedCount, cars: cars.length, ranAt: now.toISOString() };
+    this.logger.log(`Cron sync: started ${startedCount}, completed ${completedCount} rental(s), synced ${cars.length} car(s)`);
+    return { started: startedCount, completed: completedCount, cars: cars.length, ranAt: now.toISOString() };
   }
-
   async runReminders(slot: 'MORNING' | 'EVENING') {
     this.logger.log(`Running ${slot} return reminders...`);
     await this.reservationsService.handleReturnReminders(slot);

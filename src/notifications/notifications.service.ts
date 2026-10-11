@@ -55,7 +55,7 @@ export class NotificationsService {
           ...(data || {}),
           title,
           body,
-        },
+        },pushNamed
         android: {
           priority: 'high',
           notification: {
